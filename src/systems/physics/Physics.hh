@@ -82,6 +82,8 @@ namespace systems
     public: void Update(const UpdateInfo &_info,
                 EntityComponentManager &_ecm) final;
 
+    public: void ResetPhysics(EntityComponentManager &_ecm);
+
     /// \brief Private data pointer.
     private: std::unique_ptr<PhysicsPrivate> dataPtr;
   };

@@ -159,6 +159,9 @@ SimulationRunner::SimulationRunner(const sdf::World *_world,
   // Load the active levels
   this->levelMgr->UpdateLevelsState();
 
+  // Store the initial state of the ECM;
+  this->initialEntityCompMgr.Copy(this->entityCompMgr);
+
   // Load any additional plugins from the Server Configuration
   this->LoadServerPlugins(this->serverConfig.Plugins());
 
@@ -248,6 +251,7 @@ void SimulationRunner::UpdateCurrentInfo()
     if (!this->currentInfo.paused)
       this->realTimeWatch.Start();
 
+    this->entityCompMgr.Copy(this->initialEntityCompMgr);
     this->requestedRewind = false;
 
     return;

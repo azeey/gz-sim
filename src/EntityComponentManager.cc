@@ -56,6 +56,8 @@ class ignition::gazebo::EntityComponentManagerPrivate
   /// `AddEntityToMessage`.
   public: void CalculateStateThreadLoad();
 
+  public: void Copy(const EntityComponentManagerPrivate &_from);
+
   /// \brief Map of component storage classes. The key is a component
   /// type id, and the value is a pointer to the component storage.
   public: std::unordered_map<ComponentTypeId,
@@ -130,6 +132,27 @@ EntityComponentManager::EntityComponentManager()
 
 //////////////////////////////////////////////////
 EntityComponentManager::~EntityComponentManager() = default;
+
+//////////////////////////////////////////////////
+void EntityComponentManagerPrivate::Copy(
+    const EntityComponentManagerPrivate &_from)
+{
+  for (const auto &[key, val] : _from.components)
+  {
+    this->components[key] = val->Clone();
+  }
+  this->entities = _from.entities;
+  this->periodicChangedComponents = _from.periodicChangedComponents;
+  this->oneTimeChangedComponents = _from.oneTimeChangedComponents;
+  this->newlyCreatedEntities = _from.newlyCreatedEntities;
+  this->toRemoveEntities = _from.toRemoveEntities;
+  this->removeAllEntities = _from.removeAllEntities;
+  this->entityComponentsDirty = _from.entityComponentsDirty;
+  this->entityComponents = _from.entityComponents;
+  this->views = _from.views;
+  this->descendantCache = _from.descendantCache;
+  this->entityCount = _from.entityCount;
+}
 
 //////////////////////////////////////////////////
 size_t EntityComponentManager::EntityCount() const
@@ -1362,4 +1385,9 @@ void EntityComponentManager::SetEntityCreateOffset(uint64_t _offset)
   }
 
   this->dataPtr->entityCount = _offset;
+}
+
+void EntityComponentManager::Copy(const EntityComponentManager &_fromEcm)
+{
+  this->dataPtr->Copy(*_fromEcm.dataPtr);
 }

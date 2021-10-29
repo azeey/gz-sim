@@ -2294,6 +2294,26 @@ TEST_P(EntityComponentManagerFixture, StateMsgUpdateComponent)
   EXPECT_EQ(1, foundEntities);
 }
 
+TEST_P(EntityComponentManagerFixture, CopyEcm)
+{
+  Entity entity = manager.CreateEntity();
+  math::Pose3d testPose{1, 2, 3, 0.1, 0.2, 0.3};
+  manager.CreateComponent(entity, components::Pose{testPose});
+
+  EntityCompMgrTest ecmCopy;
+  ecmCopy.Copy(manager);
+  EXPECT_EQ(manager.EntityCount(), ecmCopy.EntityCount());
+  EXPECT_TRUE(ecmCopy.HasEntity(entity));
+  EXPECT_TRUE(ecmCopy.EntityHasComponentType(entity, components::Pose::typeId));
+  ecmCopy.EachNew<components::Pose>(
+      [&](const Entity &_entity, const components::Pose *_pose)
+      {
+        EXPECT_EQ(_entity, entity);
+        EXPECT_EQ(testPose, _pose->Data());
+        return true;
+      });
+}
+
 // Run multiple times. We want to make sure that static globals don't cause
 // problems.
 INSTANTIATE_TEST_SUITE_P(EntityComponentManagerRepeat,

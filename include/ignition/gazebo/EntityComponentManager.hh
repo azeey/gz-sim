@@ -69,6 +69,8 @@ namespace ignition
       /// \brief Destructor
       public: ~EntityComponentManager();
 
+      public: void Copy(const EntityComponentManager &_fromEcm);
+
       /// \brief Creates a new Entity.
       /// \return An id for the Entity, or kNullEntity on failure.
       public: Entity CreateEntity();

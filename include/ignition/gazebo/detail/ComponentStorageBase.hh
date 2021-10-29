@@ -76,6 +76,8 @@ namespace ignition
       /// \return First component or nullptr if there are no components.
       public: virtual components::BaseComponent *First() = 0;
 
+      public: virtual std::unique_ptr<ComponentStorageBase> Clone() const = 0;
+
       /// \brief Mutex used to prevent data corruption.
       protected: mutable std::mutex mutex;
     };
@@ -205,6 +207,16 @@ namespace ignition
         if (!this->components.empty())
           return static_cast<components::BaseComponent *>(&this->components[0]);
         return nullptr;
+      }
+
+      public: std::unique_ptr<ComponentStorageBase> Clone() const final
+      {
+        auto storage = std::make_unique<ComponentStorage<ComponentTypeT>>();
+        std::lock_guard<std::mutex> lock(this->mutex);
+        storage->idCounter = this->idCounter;
+        storage->idMap = this->idMap;
+        storage->components = this->components;
+        return storage;
       }
 
       /// \brief The id counter is used to get unique ids within this

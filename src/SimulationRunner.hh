@@ -467,6 +467,8 @@ namespace ignition
       /// \brief Manager of all components.
       private: EntityComponentManager entityCompMgr;
 
+      private: EntityComponentManager initialEntityCompMgr;
+
       /// \brief Manager of all levels.
       private: std::unique_ptr<LevelManager> levelMgr;
 

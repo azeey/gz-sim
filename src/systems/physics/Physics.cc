@@ -185,6 +185,10 @@ class ignition::gazebo::systems::PhysicsPrivate
   /// \param[in] _ecm Constant reference to ECM.
   public: void UpdatePhysics(EntityComponentManager &_ecm);
 
+  /// \brief Reset physics from components
+  /// \param[in] _ecm Constant reference to ECM.
+  public: void ResetPhysics(EntityComponentManager &_ecm);
+
   /// \brief Step the simulationrfor each world
   /// \param[in] _dt Duration
   public: void Step(const std::chrono::steady_clock::duration &_dt);
@@ -636,18 +640,18 @@ void Physics::Update(const UpdateInfo &_info, EntityComponentManager &_ecm)
 {
   IGN_PROFILE("Physics::Update");
 
-  // \TODO(anyone) Support rewind
-  if (_info.dt < std::chrono::steady_clock::duration::zero())
-  {
-    ignwarn << "Detected jump back in time ["
-        << std::chrono::duration_cast<std::chrono::seconds>(_info.dt).count()
-        << "s]. System may not work properly." << std::endl;
-  }
-
   if (this->dataPtr->engine)
   {
-    this->dataPtr->CreatePhysicsEntities(_ecm);
-    this->dataPtr->UpdatePhysics(_ecm);
+    if (_info.dt < std::chrono::steady_clock::duration::zero())
+    {
+      igndbg << "Resetting Physics\n";
+      this->dataPtr->ResetPhysics(_ecm);
+    }
+    else
+    {
+      this->dataPtr->CreatePhysicsEntities(_ecm);
+      this->dataPtr->UpdatePhysics(_ecm);
+    }
     // Only step if not paused.
     if (!_info.paused)
     {
@@ -1973,6 +1977,118 @@ void PhysicsPrivate::UpdatePhysics(EntityComponentManager &_ecm)
 // TODO (azeey) Reduce size of function and remove the NOLINT above
 
 //////////////////////////////////////////////////
+void PhysicsPrivate::ResetPhysics(EntityComponentManager &_ecm)
+{
+  IGN_PROFILE("PhysicsPrivate::ResetPhysics");
+  // Clear worldPoseCmdsToRemove because pose commands that were issued before
+  // the reset will be ignored.
+  this->worldPoseCmdsToRemove.clear();
+
+  // Battery state
+  _ecm.Each<components::BatterySoC>(
+      [&](const Entity & _entity, const components::BatterySoC *)
+      {
+        entityOffMap[_ecm.ParentEntity(_entity)] = false;
+        return true;
+      });
+
+  // Update link pose, linear velocity, and angular velocity
+  _ecm.Each<components::Link>(
+      [&](const Entity &_entity, const components::Link *)
+      {
+        auto linkPtrPhys = this->entityLinkMap.Get(_entity);
+        if (nullptr == linkPtrPhys)
+        {
+          ignwarn << "Failed to find link [" << _entity << "]." << std::endl;
+          return true;
+        }
+
+        auto freeGroup = linkPtrPhys->FindFreeGroup();
+        if (!freeGroup)
+          return true;
+
+        this->entityFreeGroupMap.AddEntity(_entity, freeGroup);
+
+        if (freeGroup->CanonicalLink() == linkPtrPhys)
+        {
+          auto linkWorldPose = worldPose(_entity, _ecm);
+          freeGroup->SetWorldPose(math::eigen3::convert(linkWorldPose));
+        }
+
+        auto worldAngularVelFeature =
+            this->entityFreeGroupMap
+                .EntityCast<WorldVelocityCommandFeatureList>(_entity);
+
+        if (!worldAngularVelFeature)
+        {
+          static bool informed{false};
+          if (!informed)
+          {
+            igndbg << "Attempting to reset link angular velocity, but the "
+                   << "physics engine doesn't support velocity commands. "
+                   << "Velocity won't be reset."
+                   << std::endl;
+            informed = true;
+          }
+          return true;
+        }
+        else
+        {
+          worldAngularVelFeature->SetWorldAngularVelocity(
+              Eigen::Vector3d::Zero());
+        }
+
+        auto worldLinearVelFeature =
+            this->entityFreeGroupMap
+                .EntityCast<WorldVelocityCommandFeatureList>(_entity);
+        if (!worldLinearVelFeature)
+        {
+          static bool informed{false};
+          if (!informed)
+          {
+            igndbg << "Attempting to set link linear velocity, but the "
+                   << "physics engine doesn't support velocity commands. "
+                   << "Velocity won't be set."
+                   << std::endl;
+            informed = true;
+          }
+          return true;
+        }
+        else
+        {
+          worldLinearVelFeature->SetWorldLinearVelocity(
+              Eigen::Vector3d::Zero());
+        }
+
+        return true;
+      });
+
+  // Handle joint state
+  _ecm.Each<components::Joint>(
+      [&](const Entity &_entity, const components::Joint *)
+      {
+        auto jointPhys = this->entityJointMap.Get(_entity);
+        if (nullptr == jointPhys)
+        {
+          ignwarn << "Failed to find joint [" << _entity << "]." << std::endl;
+          return true;
+        }
+
+        // Assume initial joint position and velocities are zero
+        // Reset the velocity
+        for (std::size_t i = 0; i < jointPhys->GetDegreesOfFreedom(); ++i)
+        {
+          jointPhys->SetVelocity(i, 0.0);
+          jointPhys->SetPosition(i, 0.0);
+        }
+
+        return true;
+      });
+
+
+}
+
+//////////////////////////////////////////////////
 void PhysicsPrivate::Step(const std::chrono::steady_clock::duration &_dt)
 {
   IGN_PROFILE("PhysicsPrivate::Step");
@@ -1980,7 +2096,10 @@ void PhysicsPrivate::Step(const std::chrono::steady_clock::duration &_dt)
   ignition::physics::ForwardStep::State state;
   ignition::physics::ForwardStep::Output output;
 
-  input.Get<std::chrono::steady_clock::duration>() = _dt;
+  if (_dt >= std::chrono::steady_clock::duration::zero())
+  {
+    input.Get<std::chrono::steady_clock::duration>() = _dt;
+  }
 
   for (const auto &world : this->entityWorldMap.Map())
   {
