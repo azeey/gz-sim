@@ -588,7 +588,8 @@ namespace ignition
       /// playback.
       /// \param[in] _offset Offset value.
       public: void SetEntityCreateOffset(uint64_t _offset);
-
+      public: void ComputeDiff(const EntityComponentManager &_other,
+                               EntityComponentManager &_diff) const;
       /// \brief Clear the list of newly added entities so that a call to
       /// EachAdded after this will have no entities to iterate. This function
       /// is protected to facilitate testing.

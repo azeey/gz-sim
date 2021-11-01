@@ -133,6 +133,10 @@ EntityComponentManager::EntityComponentManager()
 //////////////////////////////////////////////////
 EntityComponentManager::~EntityComponentManager() = default;
 
+// //////////////////////////////////////////////////
+// EntityComponentManager::EntityComponentManager(
+//     EntityComponentManager &&_ecm) noexcept = default;
+
 //////////////////////////////////////////////////
 void EntityComponentManagerPrivate::Copy(
     const EntityComponentManagerPrivate &_from)
@@ -1387,7 +1391,30 @@ void EntityComponentManager::SetEntityCreateOffset(uint64_t _offset)
   this->dataPtr->entityCount = _offset;
 }
 
+/////////////////////////////////////////////////
 void EntityComponentManager::Copy(const EntityComponentManager &_fromEcm)
 {
   this->dataPtr->Copy(*_fromEcm.dataPtr);
+}
+
+/////////////////////////////////////////////////
+/// Add from `_other` entities not available in `this` as removed entities
+/// Mark entities available in `this` but not in `_other` as newly added 
+/// entities
+void EntityComponentManager::ComputeDiff(const EntityComponentManager &_other,
+                                         EntityComponentManager &_diff) const
+{
+  _diff.Copy(*this);
+
+  for (const auto &item : _other.dataPtr->entities.Vertices())
+  {
+    const auto &v = item.second.get();
+    if (!this->dataPtr->entities.VertexFromId(v.Id()).Valid())
+    {
+      // In `_other` but not in `this`
+      // Add the entities and mark them as removed
+      _diff.dataPtr->entities.AddVertex(v.Name(), v.Data(), v.Id());
+      _diff.RequestRemoveEntity(v.Data());
+    }
+  }
 }

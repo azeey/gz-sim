@@ -2314,6 +2314,26 @@ TEST_P(EntityComponentManagerFixture, CopyEcm)
       });
 }
 
+TEST_P(EntityComponentManagerFixture, ComputDiff)
+{
+  Entity entity1 = manager.CreateEntity();
+  math::Pose3d testPose{1, 2, 3, 0.1, 0.2, 0.3};
+  manager.CreateComponent(entity1, components::Pose{testPose});
+
+  EntityCompMgrTest ecmCopy;
+  ecmCopy.Copy(manager);
+
+  Entity entity2 = manager.CreateEntity();
+  manager.CreateComponent(entity2, components::StringComponent{"Entity2"});
+
+  EntityCompMgrTest ecmDiff;
+  ecmCopy.ComputeDiff(manager, ecmDiff);
+
+  EXPECT_EQ(ecmCopy.EntityCount(), ecmDiff.EntityCount());
+  EXPECT_TRUE(ecmCopy.HasEntity(entity1));
+  EXPECT_TRUE(ecmCopy.HasEntity(entity2));
+}
+
 // Run multiple times. We want to make sure that static globals don't cause
 // problems.
 INSTANTIATE_TEST_SUITE_P(EntityComponentManagerRepeat,
