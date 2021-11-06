@@ -175,7 +175,8 @@ class ignition::gazebo::systems::PhysicsPrivate
 
   /// \brief Create physics entities
   /// \param[in] _ecm Constant reference to ECM.
-  public: void CreatePhysicsEntities(const EntityComponentManager &_ecm);
+  public: void CreatePhysicsEntities(const EntityComponentManager &_ecm,
+                                     bool _warnIfEntityExists = true);
 
   /// \brief Remove physics entities if they are removed from the ECM
   /// \param[in] _ecm Constant reference to ECM.
@@ -640,9 +641,12 @@ void Physics::Update(const UpdateInfo &_info, EntityComponentManager &_ecm)
 {
   IGN_PROFILE("Physics::Update");
 
+  // std::cout << "SimTime: " << _info.simTime.count()
+  //           << " dt: " << _info.dt.count() << std::endl;
   if (this->dataPtr->engine)
   {
-    if (_info.dt < std::chrono::steady_clock::duration::zero())
+    if (_info.dt < std::chrono::steady_clock::duration::zero() &&
+        _info.simTime == std::chrono::steady_clock::duration::zero())
     {
       igndbg << "Resetting Physics\n";
       this->dataPtr->ResetPhysics(_ecm);
@@ -651,13 +655,13 @@ void Physics::Update(const UpdateInfo &_info, EntityComponentManager &_ecm)
     {
       this->dataPtr->CreatePhysicsEntities(_ecm);
       this->dataPtr->UpdatePhysics(_ecm);
+      // Only step if not paused.
+      if (!_info.paused)
+      {
+        this->dataPtr->Step(_info.dt);
+      }
+      this->dataPtr->UpdateSim(_ecm);
     }
-    // Only step if not paused.
-    if (!_info.paused)
-    {
-      this->dataPtr->Step(_info.dt);
-    }
-    this->dataPtr->UpdateSim(_ecm);
 
     // Entities scheduled to be removed should be removed from physics after the
     // simulation step. Otherwise, since the to-be-removed entity still shows up
@@ -667,7 +671,8 @@ void Physics::Update(const UpdateInfo &_info, EntityComponentManager &_ecm)
 }
 
 //////////////////////////////////////////////////
-void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
+void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm,
+                                           bool _warnIfEntityExists)
 {
   // Get all the new worlds
   _ecm.EachNew<components::World, components::Name, components::Gravity>(
@@ -679,9 +684,12 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
         // Check if world already exists
         if (this->entityWorldMap.HasEntity(_entity))
         {
-          ignwarn << "World entity [" << _entity
-                  << "] marked as new, but it's already on the map."
-                  << std::endl;
+          if (_warnIfEntityExists)
+          {
+            ignwarn << "World entity [" << _entity
+                    << "] marked as new, but it's already on the map."
+                    << std::endl;
+          }
           return true;
         }
 
@@ -705,9 +713,12 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
         // Check if model already exists
         if (this->entityModelMap.HasEntity(_entity))
         {
-          ignwarn << "Model entity [" << _entity
-                  << "] marked as new, but it's already on the map."
-                  << std::endl;
+          if (_warnIfEntityExists)
+          {
+            ignwarn << "Model entity [" << _entity
+                    << "] marked as new, but it's already on the map."
+                    << std::endl;
+          }
           return true;
         }
         // TODO(anyone) Don't load models unless they have collisions
@@ -833,9 +844,12 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
         // Check if link already exists
         if (this->entityLinkMap.HasEntity(_entity))
         {
-          ignwarn << "Link entity [" << _entity
-                  << "] marked as new, but it's already on the map."
-                  << std::endl;
+          if (_warnIfEntityExists)
+          {
+            ignwarn << "Link entity [" << _entity
+                    << "] marked as new, but it's already on the map."
+                    << std::endl;
+          }
           return true;
         }
 
@@ -892,9 +906,12 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
       {
         if (this->entityCollisionMap.HasEntity(_entity))
         {
-           ignwarn << "Collision entity [" << _entity
-                   << "] marked as new, but it's already on the map."
-                   << std::endl;
+          if (_warnIfEntityExists)
+          {
+            ignwarn << "Collision entity [" << _entity
+                    << "] marked as new, but it's already on the map."
+                    << std::endl;
+          }
           return true;
         }
 
@@ -1026,9 +1043,12 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
         // Check if joint already exists
         if (this->entityJointMap.HasEntity(_entity))
         {
-          ignwarn << "Joint entity [" << _entity
-                  << "] marked as new, but it's already on the map."
-                  << std::endl;
+          if (_warnIfEntityExists)
+          {
+            ignwarn << "Joint entity [" << _entity
+                    << "] marked as new, but it's already on the map."
+                    << std::endl;
+          }
           return true;
         }
 
@@ -1116,9 +1136,12 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
         // Check if joint already exists
         if (this->entityJointMap.HasEntity(_entity))
         {
-          ignwarn << "Joint entity [" << _entity
-                  << "] marked as new, but it's already on the map."
-                  << std::endl;
+          if (_warnIfEntityExists)
+          {
+            ignwarn << "Joint entity [" << _entity
+                    << "] marked as new, but it's already on the map."
+                    << std::endl;
+          }
           return true;
         }
 
@@ -1265,6 +1288,7 @@ void PhysicsPrivate::RemovePhysicsEntities(const EntityComponentManager &_ecm)
               }
             }
             this->entityLinkMap.Remove(childLink);
+            this->entityFreeGroupMap.Remove(childLink);
             this->topLevelModelMap.erase(childLink);
             this->staticEntities.erase(childLink);
           }
@@ -1984,13 +2008,7 @@ void PhysicsPrivate::ResetPhysics(EntityComponentManager &_ecm)
   // the reset will be ignored.
   this->worldPoseCmdsToRemove.clear();
 
-  // Battery state
-  _ecm.Each<components::BatterySoC>(
-      [&](const Entity & _entity, const components::BatterySoC *)
-      {
-        entityOffMap[_ecm.ParentEntity(_entity)] = false;
-        return true;
-      });
+  this->CreatePhysicsEntities(_ecm, false);
 
   // Update link pose, linear velocity, and angular velocity
   _ecm.Each<components::Link>(
@@ -2084,8 +2102,6 @@ void PhysicsPrivate::ResetPhysics(EntityComponentManager &_ecm)
 
         return true;
       });
-
-
 }
 
 //////////////////////////////////////////////////
