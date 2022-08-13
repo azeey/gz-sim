@@ -68,16 +68,23 @@ namespace gz
               gz::common::ConnectionPtr
               Connect(const typename E::CallbackT &_subscriber)
               {
-                if (this->events.find(typeid(E)) == this->events.end()) {
-                  this->events[typeid(E)] = std::make_unique<E>();
+                std::shared_ptr<E> eventPtr;
+                auto eventBasePtr = this->events[typeid(E)].lock();
+                if (eventBasePtr != nullptr)
+                {
+                  eventPtr = std::dynamic_pointer_cast<E>(eventBasePtr);
+                }
+                else
+                {
+                  eventPtr = std::make_shared<E>();
+                  this->events[typeid(E)] = eventPtr;
                 }
 
-                E *eventPtr = dynamic_cast<E *>(this->events[typeid(E)].get());
                 // All values in the map should be derived from Event,
                 // so this shouldn't be an issue, but it doesn't hurt to check.
                 if (eventPtr != nullptr)
                 {
-                  return eventPtr->Connect(_subscriber);
+                  return E::ConnectTo(_subscriber, eventPtr);
                 }
                 else
                 {
@@ -95,16 +102,16 @@ namespace gz
               {
                 if (this->events.find(typeid(E)) == this->events.end())
                 {
-                  // If there are no events of type E in the map, create it.
-                  // But it also means there is nothing to signal.
-                  //
-                  // This is also needed to suppress unused function warnings
-                  // for Events that are purely emitted, with no connections.
-                  this->events[typeid(E)] = std::make_unique<E>();
                   return;
                 }
 
-                E *eventPtr = dynamic_cast<E *>(this->events[typeid(E)].get());
+                std::shared_ptr<E> eventPtr;
+                auto eventBasePtr = this->events[typeid(E)].lock();
+                if (eventBasePtr != nullptr)
+                {
+                  eventPtr = std::dynamic_pointer_cast<E>(eventBasePtr);
+                }
+
                 // All values in the map should be derived from Event,
                 // so this shouldn't be an issue, but it doesn't hurt to check.
                 if (eventPtr != nullptr)
@@ -142,7 +149,7 @@ namespace gz
 
       /// \brief Container of used signals.
       private: std::unordered_map<TypeInfoRef,
-                                  std::unique_ptr<gz::common::Event>,
+                                  std::weak_ptr<gz::common::Event>,
                                   Hasher, EqualTo> events;
     };
     }
