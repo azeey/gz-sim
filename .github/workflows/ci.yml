@@ -28,7 +28,7 @@ jobs:
         run: |
           # Allow core dumps
           ulimit -c unlimited
-          sudo -E ./build.sh "" true
+          sudo -E ./build.sh "" true "" "" "" "" true false false
           sudo chmod -R 777 /cores
       - uses: actions/upload-artifact@v3
         if: ${{ failure() }}  # Run only if something went wrong
