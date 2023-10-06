@@ -8,30 +8,25 @@ on:
 
 jobs:
   focal-ci:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     name: Ubuntu Focal CI
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Download build script
+      - name: Set cores to get stored in ./cores
         run: |
-          curl -o build.sh https://raw.githubusercontent.com/gazebo-tooling/action-gz-ci/focal/entrypoint.sh
-          chmod +x build.sh
-      - name: Set cores to get stored in /cores
-        run: |
-          sudo mkdir /cores
-          sudo chmod 777 /cores
+          sudo mkdir ./cores
+          sudo chmod 777 ./cores
           # Core filenames will be of the form executable.pid.timestamp:
-          sudo bash -c 'echo "/cores/%e.%p.%t" > /proc/sys/kernel/core_pattern'
+          sudo bash -c "echo \"$PWD/cores/%e.%p.%t\" > /proc/sys/kernel/core_pattern"
       - name: Compile and test
         id: ci
-        run: |
-          # Allow core dumps
-          ulimit -c unlimited
-          sudo -E ./build.sh "" true "" "" "" "" true false false
-          sudo chmod -R 777 /cores
+        uses: azeey/action-gz-ci@focal_core_dump
+      - name: Fix core permissions
+        if: ${{ failure() }}  # Run only if something went wrong
+        run: sudo chmod -R 777 ./cores
       - uses: actions/upload-artifact@v3
         if: ${{ failure() }}  # Run only if something went wrong
         with:
           name: cores
-          path: /cores
+          path: "${{ github.workspace }}/cores"
