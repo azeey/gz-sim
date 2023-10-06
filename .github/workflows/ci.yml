@@ -13,18 +13,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Set cores to get stored in ./cores
+      - name: Set cores to get stored in  "${{ github.workspace }}/cores"
         run: |
-          sudo mkdir ./cores
-          sudo chmod 777 ./cores
+          sudo mkdir  "${{ github.workspace }}/cores"
+          sudo chmod 777  "${{ github.workspace }}/cores"
           # Core filenames will be of the form executable.pid.timestamp:
-          sudo bash -c "echo \"$PWD/cores/%e.%p.%t\" > /proc/sys/kernel/core_pattern"
+          sudo bash -c "echo \"${{ github.workspace }}/cores/%e.%p.%t\" > /proc/sys/kernel/core_pattern"
       - name: Compile and test
         id: ci
         uses: azeey/action-gz-ci@focal_core_dump
       - name: Fix core permissions
         if: ${{ failure() }}  # Run only if something went wrong
-        run: sudo chmod -R 777 ./cores
+        run: sudo chmod -R 777  "${{ github.workspace }}/cores"
       - uses: actions/upload-artifact@v3
         if: ${{ failure() }}  # Run only if something went wrong
         with:
