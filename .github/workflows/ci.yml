@@ -8,35 +8,9 @@ on:
 
 jobs:
   focal-ci:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     name: Ubuntu Focal CI
-    container:
-      image: ubuntu:focal
-      options: --privileged --ulimit core=-1 --security-opt seccomp=unconfined
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Install curl
-        run: |
-          apt update
-          apt install -y curl
-      - name: Download build script
-        run: |
-          curl -o build.sh https://raw.githubusercontent.com/gazebo-tooling/action-gz-ci/focal/entrypoint.sh
-          chmod +x build.sh
-      - name: Set cores to get stored in /cores
-        run: |
-          mkdir /cores
-          # Core filenames will be of the form executable.pid.timestamp:
-          bash -c 'echo "/cores/%e.%p.%t" > /proc/sys/kernel/core_pattern'
-      - name: Compile and test
+      - name: Run CI
         id: ci
-        run: |
-          # Allow core dumps
-          ulimit -c unlimited
-          ./build.sh "" "" "" "" "" "" "true" "false" "false"
-      - uses: actions/upload-artifact@v3
-        if: ${{ failure() }}  # Run only if something went wrong
-        with:
-          name: Core Dumps
-          path: /cores
+        uses: azeey/action-gz-ci@focal_core_dump
