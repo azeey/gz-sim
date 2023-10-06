@@ -27,7 +27,6 @@ jobs:
       - name: Set cores to get stored in /cores
         run: |
           mkdir /cores
-          chmod 777 /cores
           # Core filenames will be of the form executable.pid.timestamp:
           bash -c 'echo "/cores/%e.%p.%t" > /proc/sys/kernel/core_pattern'
       - name: Compile and test
