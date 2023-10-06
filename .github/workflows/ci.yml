@@ -14,3 +14,10 @@ jobs:
       - name: Run CI
         id: ci
         uses: azeey/action-gz-ci@focal_core_dump
+  jammy-ci:
+    runs-on: ubuntu-22.04
+    name: Ubuntu Jammy CI
+    steps:
+      - name: Run CI
+        id: ci
+        uses: azeey/action-gz-ci@focal_core_dump
