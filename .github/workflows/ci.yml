@@ -12,7 +12,7 @@ jobs:
     name: Ubuntu Focal CI
     container:
       image: ubuntu:focal
-      options: --ulimit core=-1
+      options: --privileged --ulimit core=-1 --security-opt seccomp=unconfined
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -22,7 +22,7 @@ jobs:
           apt install -y curl
       - name: Download build script
         run: |
-          curl -o build.sh https://raw.githubusercontent.com/azeey/action-gz-ci/focal_core_dump/entrypoint.sh
+          curl -o build.sh https://raw.githubusercontent.com/gazebo-tooling/action-gz-ci/focal/entrypoint.sh
           chmod +x build.sh
       - name: Set cores to get stored in /cores
         run: |
@@ -38,5 +38,5 @@ jobs:
       - uses: actions/upload-artifact@v3
         if: ${{ failure() }}  # Run only if something went wrong
         with:
-          name: cores
+          name: Core Dumps
           path: /cores
