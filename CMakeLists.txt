@@ -12,6 +12,8 @@ set (GZ_DISTRIBUTION "Harmonic")
 # If you get an error at this line, you need to install gz-cmake
 find_package(gz-cmake3 REQUIRED)
 
+find_package(Tracy REQUIRED)
+
 #============================================================================
 # Configure the project
 #============================================================================

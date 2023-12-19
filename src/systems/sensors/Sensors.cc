@@ -15,6 +15,7 @@
  *
  */
 
+#include "tracy/Tracy.hpp"
 #include "Sensors.hh"
 
 #include <atomic>
@@ -64,6 +65,14 @@
 
 #include "gz/sim/rendering/Events.hh"
 #include "gz/sim/rendering/RenderUtil.hh"
+#ifdef GZ_PROFILE
+#undef GZ_PROFILE
+#define GZ_PROFILE ZoneScopedN
+#endif
+#ifdef GZ_PROFILE_THREAD_NAME
+#undef GZ_PROFILE_THREAD_NAME
+#define GZ_PROFILE_THREAD_NAME tracy::SetThreadName
+#endif
 
 using namespace gz;
 using namespace sim;

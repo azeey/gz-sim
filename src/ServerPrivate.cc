@@ -173,16 +173,16 @@ bool ServerPrivate::Run(const uint64_t _iterations,
   }
   else
   {
-    for (std::unique_ptr<SimulationRunner> &runner : this->simRunners)
-    {
-      this->workerPool.AddWork([&runner, &_iterations] ()
-        {
-          runner->Run(_iterations);
-        });
-    }
+    // for (std::unique_ptr<SimulationRunner> &runner : this->simRunners)
+    // {
+    //   this->workerPool.AddWork([&runner, &_iterations] ()
+    //     {
+    //       runner->Run(_iterations);
+    //     });
+    // }
 
-    // Wait for the runner to complete.
-    result = this->workerPool.WaitForResults();
+    // // Wait for the runner to complete.
+    // result = this->workerPool.WaitForResults();
   }
 
   this->running = false;

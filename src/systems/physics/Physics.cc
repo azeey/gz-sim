@@ -15,6 +15,7 @@
  *
  */
 
+#include "tracy/Tracy.hpp"
 #include "Physics.hh"
 
 #include <gz/msgs/contact.pb.h>
@@ -150,6 +151,14 @@
 
 #include "EntityFeatureMap.hh"
 
+#ifdef GZ_PROFILE
+#undef GZ_PROFILE
+#define GZ_PROFILE ZoneScopedN
+#endif
+#ifdef GZ_PROFILE_THREAD_NAME
+#undef GZ_PROFILE_THREAD_NAME
+#define GZ_PROFILE_THREAD_NAME tracy::SetThreadName
+#endif
 using namespace gz;
 using namespace gz::sim;
 using namespace gz::sim::systems;

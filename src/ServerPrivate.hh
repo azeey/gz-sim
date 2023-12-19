@@ -37,7 +37,6 @@
 
 #include <gz/common/SignalHandler.hh>
 #include <gz/common/URI.hh>
-#include <gz/common/WorkerPool.hh>
 
 #include <gz/fuel_tools/FuelClient.hh>
 
@@ -146,9 +145,6 @@ namespace gz
       /// \return True if successful.
       private: bool ServerControlService(
         const gz::msgs::ServerControl &_req, msgs::Boolean &_res);
-
-      /// \brief A pool of worker threads.
-      public: common::WorkerPool workerPool{2};
 
       /// \brief All the simulation runners.
       public: std::vector<std::unique_ptr<SimulationRunner>> simRunners;

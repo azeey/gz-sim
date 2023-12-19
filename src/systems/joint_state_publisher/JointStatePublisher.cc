@@ -99,6 +99,10 @@ void JointStatePublisher::Configure(
   {
     this->topic = _sdf->Get<std::string>("topic");
   }
+  if (_sdf->HasElement("update_rate"))
+  {
+    this->updatePeriod = 1.0/_sdf->Get<double>("update_rate");
+  }
 
 }
 
@@ -182,6 +186,16 @@ void JointStatePublisher::PostUpdate(const UpdateInfo &_info,
   if (!this->modelPub)
     return;
 
+  if (this->updatePeriod)
+  {
+    auto diff = std::chrono::duration<double>(_info.simTime - this->lastPubTime).count();
+    if (diff > 0 && diff < this->updatePeriod)
+    {
+      return;
+    }
+  }
+
+  this->lastPubTime = _info.simTime;
   // Create the message
   msgs::Model msg;
   msg.mutable_header()->mutable_stamp()->CopyFrom(

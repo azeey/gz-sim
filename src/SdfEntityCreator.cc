@@ -105,6 +105,8 @@ class gz::sim::SdfEntityCreatorPrivate
   /// \brief Keep track of new visuals being added, so we load their plugins
   /// only after we have their scoped name.
   public: std::map<Entity, sdf::Plugins> newVisuals;
+
+  public: MaterialParser materialParser;
 };
 
 using namespace gz;
@@ -195,6 +197,7 @@ SdfEntityCreator::SdfEntityCreator(EntityComponentManager &_ecm,
 {
   this->dataPtr->ecm = &_ecm;
   this->dataPtr->eventManager = &_eventManager;
+  this->dataPtr->materialParser.Load();
 }
 
 /////////////////////////////////////////////////
@@ -806,13 +809,22 @@ Entity SdfEntityCreator::CreateEntities(const sdf::Visual *_visual)
       if((scriptName.find("Gazebo/") != std::string::npos)) {
         gzwarn << "Using internal gazebo.material to parse " << scriptName
           << std::endl;
-        MaterialParser* materialParser = new MaterialParser();
-        materialParser->Load();
-        std::vector<std::vector<float>> parsed = materialParser->GetMaterialValues(scriptName);
+        std::vector<std::vector<float>> parsed = this->dataPtr->materialParser.GetMaterialValues(scriptName);
 
-        visualMaterial.SetAmbient(gz::math::Color(parsed[0][0],parsed[0][1], parsed[0][2]));
-        visualMaterial.SetDiffuse(gz::math::Color(parsed[1][0],parsed[1][1], parsed[1][2]));
-        visualMaterial.SetSpecular(gz::math::Color(parsed[2][0],parsed[2][1], parsed[2][2], parsed[2][3]));
+        if (parsed.empty()) {
+          gzwarn << "Could not find material: " << scriptName << std::endl;
+        }
+        else{
+          if (parsed.size() >= 1){
+            visualMaterial.SetAmbient(gz::math::Color(parsed[0][0],parsed[0][1], parsed[0][2]));
+          }
+          if (parsed.size() >= 2){
+            visualMaterial.SetDiffuse(gz::math::Color(parsed[1][0],parsed[1][1], parsed[1][2]));
+          }
+          if (parsed.size() >= 3){
+            visualMaterial.SetSpecular(gz::math::Color(parsed[2][0],parsed[2][1], parsed[2][2], parsed[2][3]));
+          }
+        }
       }
     }
     this->dataPtr->ecm->CreateComponent(visualEntity,

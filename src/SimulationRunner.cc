@@ -15,6 +15,8 @@
  *
 */
 
+#include "tracy/Tracy.hpp"
+#include "pthread.h"
 #include "SimulationRunner.hh"
 
 #include <algorithm>
@@ -55,6 +57,14 @@ using namespace gz;
 using namespace sim;
 
 using StringSet = std::unordered_set<std::string>;
+#ifdef GZ_PROFILE
+#undef GZ_PROFILE
+#define GZ_PROFILE ZoneScopedN
+#endif
+#ifdef GZ_PROFILE_THREAD_NAME
+#undef GZ_PROFILE_THREAD_NAME
+#define GZ_PROFILE_THREAD_NAME tracy::SetThreadName
+#endif
 
 namespace {
 #ifdef HAVE_PYBIND11
@@ -560,14 +570,22 @@ void SimulationRunner::ProcessSystemQueue()
       std::stringstream ss;
       ss << "PostUpdateThread: " << id;
       GZ_PROFILE_THREAD_NAME(ss.str().c_str());
+      pthread_setname_np(pthread_self(), ss.str().c_str());
       while (this->postUpdateThreadsRunning)
       {
-        this->postUpdateStartBarrier->Wait();
+        {
+          ZoneScopedN("Start Barrier");
+          this->postUpdateStartBarrier->Wait();
+        }
         if (this->postUpdateThreadsRunning)
         {
+          ZoneScopedN("Run PostUpdate");
           system->PostUpdate(this->currentInfo, this->entityCompMgr);
         }
-        this->postUpdateStopBarrier->Wait();
+        {
+          ZoneScopedN("Stop Barrier");
+          this->postUpdateStopBarrier->Wait();
+        }
       }
       gzdbg << "Exiting postupdate worker thread ("
         << id << ")" << std::endl;
@@ -606,7 +624,7 @@ void SimulationRunner::UpdateSystems()
   }
 
   {
-    GZ_PROFILE("PostUpdate");
+    ZoneScopedNS("PostUpdate", 10);
     this->entityCompMgr.LockAddingEntitiesToViews(true);
     // If no systems implementing PostUpdate have been added, then
     // the barriers will be uninitialized, so guard against that condition.
@@ -615,9 +633,15 @@ void SimulationRunner::UpdateSystems()
       // Release the GIL from the main thread to run PostUpdate threads which
       // might be calling into python. The system that does call into python
       // needs to lock the GIL from its thread.
-      MaybeGilScopedRelease release;
-      this->postUpdateStartBarrier->Wait();
-      this->postUpdateStopBarrier->Wait();
+      // MaybeGilScopedRelease release;
+      {
+        ZoneScopedN("Start Barrier");
+        this->postUpdateStartBarrier->Wait();
+      }
+      {
+        ZoneScopedN("Stop Barrier");
+        this->postUpdateStopBarrier->Wait();
+      }
     }
     this->entityCompMgr.LockAddingEntitiesToViews(false);
   }
@@ -806,7 +830,7 @@ bool SimulationRunner::Run(const uint64_t _iterations)
       std::this_thread::sleep_for(sleepTime);
       actualSleep = std::chrono::steady_clock::now() - startTime;
     }
-
+    ZoneNamedN(__zone_after_sleep, "After Sleep", true);
     // Exponentially average out the difference between expected sleep time
     // and actual sleep time.
     this->sleepOffset =
@@ -928,6 +952,8 @@ void SimulationRunner::Step(const UpdateInfo &_info)
   // Each network manager takes care of marking its components as unchanged
   if (!this->networkMgr)
     this->entityCompMgr.SetAllComponentsUnchanged();
+
+  FrameMark;
 }
 
 //////////////////////////////////////////////////

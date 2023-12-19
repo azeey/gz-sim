@@ -14,8 +14,18 @@
  * limitations under the License.
  *
  */
-
+#include <chrono>
 #include "Barrier.hh"
+#include "tracy/Tracy.hpp"
+#ifdef GZ_PROFILE
+#undef GZ_PROFILE
+#endif
+#ifdef GZ_PROFILE_THREAD_NAME
+#undef GZ_PROFILE_THREAD_NAME
+#endif
+
+#define GZ_PROFILE ZoneScopedN
+#define GZ_PROFILE_THREAD_NAME tracy::SetThreadName
 
 class gz::sim::BarrierPrivate
 {
@@ -64,6 +74,7 @@ Barrier::ExitStatus Barrier::Wait()
 
   if (--this->dataPtr->count == 0)
   {
+    GZ_PROFILE("Barrier notify");
     // All threads have reached the wait, so reset the barrier.
     this->dataPtr->generation++;
     this->dataPtr->count = this->dataPtr->threadCount;
@@ -73,9 +84,11 @@ Barrier::ExitStatus Barrier::Wait()
 
   while (gen == this->dataPtr->generation && !this->dataPtr->cancelled)
   {
+    GZ_PROFILE("Barrier wait_for");
+    using namespace std::chrono_literals;
     // All threads haven't reached, so wait until generation is reached
     // or a cancel occurs
-    this->dataPtr->cv.wait(lock);
+    this->dataPtr->cv.wait_for(lock, 500us);
   }
 
   if (this->dataPtr->cancelled)

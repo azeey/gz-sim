@@ -84,6 +84,8 @@ namespace systems
 
     /// \brief The publisher
     private: std::unique_ptr<transport::Node::Publisher> modelPub;
+    private: std::optional<double> updatePeriod;
+    public: std::chrono::steady_clock::duration lastPubTime{0};
 
     /// \brief The joints that will be published.
     private: std::set<Entity> joints;

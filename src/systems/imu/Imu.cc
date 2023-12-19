@@ -43,6 +43,16 @@
 #include "gz/sim/components/World.hh"
 #include "gz/sim/EntityComponentManager.hh"
 #include "gz/sim/Util.hh"
+#include "tracy/Tracy.hpp"
+#ifdef GZ_PROFILE
+#undef GZ_PROFILE
+#endif
+#ifdef GZ_PROFILE_THREAD_NAME
+#undef GZ_PROFILE_THREAD_NAME
+#endif
+
+#define GZ_PROFILE ZoneScopedN
+#define GZ_PROFILE_THREAD_NAME tracy::SetThreadName
 
 using namespace gz;
 using namespace sim;
