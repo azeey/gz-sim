@@ -471,18 +471,7 @@ extern "C" int runGui(const char *_guiConfig, const char *_file, int _waitGui,
                               _renderEngine, _renderEngineGuiApiBackend);
 }
 
-#if defined(RUNGUI_MAIN)
 int main(int argc, char* argv[])
 {
   return sim::gui::runGui(argc, argv, nullptr);
 }
-#elif defined(RUNSERVER_MAIN)
-int main()
-{
-  common::Console::SetVerbosity(4);
-  sim::ServerConfig serverConfig;
-  serverConfig.SetSdfFile("shapes.sdf");
-  sim::Server server(serverConfig);
-  server.Run(true, 0, true);
-}
-#endif

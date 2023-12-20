@@ -1035,7 +1035,6 @@ bool CreateCommand::Execute()
     }
     case msgs::EntityFactory::kSdfFilename:
     {
-      std::cout << "Loading " <<  createMsg->sdf_filename() << std::endl;
       errors = root.Load(createMsg->sdf_filename());
       break;
     }

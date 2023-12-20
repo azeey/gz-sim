@@ -14,7 +14,6 @@
  * limitations under the License.
  *
  */
-#include <chrono>
 #include "Barrier.hh"
 #include "tracy/Tracy.hpp"
 #ifdef GZ_PROFILE
@@ -85,10 +84,9 @@ Barrier::ExitStatus Barrier::Wait()
   while (gen == this->dataPtr->generation && !this->dataPtr->cancelled)
   {
     GZ_PROFILE("Barrier wait_for");
-    using namespace std::chrono_literals;
     // All threads haven't reached, so wait until generation is reached
     // or a cancel occurs
-    this->dataPtr->cv.wait_for(lock, 500us);
+    this->dataPtr->cv.wait(lock);
   }
 
   if (this->dataPtr->cancelled)

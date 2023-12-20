@@ -90,6 +90,17 @@
 #include <sdf/Scene.hh>
 #include <sdf/Sensor.hh>
 
+#include "tracy/Tracy.hpp"
+#ifdef GZ_PROFILE
+#undef GZ_PROFILE
+#endif
+#ifdef GZ_PROFILE_THREAD_NAME
+#undef GZ_PROFILE_THREAD_NAME
+#endif
+
+#define GZ_PROFILE ZoneScopedN
+#define GZ_PROFILE_THREAD_NAME tracy::SetThreadName
+
 using namespace std::chrono_literals;
 
 using namespace gz;

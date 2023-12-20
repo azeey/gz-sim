@@ -561,37 +561,37 @@ void SimulationRunner::ProcessSystemQueue()
   this->postUpdateThreadsRunning = true;
   int id = 0;
 
-  for (auto &system : this->systemMgr->SystemsPostUpdate())
-  {
-    gzdbg << "Creating postupdate worker thread (" << id << ")" << std::endl;
+  // for (auto &system : this->systemMgr->SystemsPostUpdate())
+  // {
+  //   gzdbg << "Creating postupdate worker thread (" << id << ")" << std::endl;
 
-    this->postUpdateThreads.push_back(std::thread([&, id]()
-    {
-      std::stringstream ss;
-      ss << "PostUpdateThread: " << id;
-      GZ_PROFILE_THREAD_NAME(ss.str().c_str());
-      pthread_setname_np(pthread_self(), ss.str().c_str());
-      while (this->postUpdateThreadsRunning)
-      {
-        {
-          ZoneScopedN("Start Barrier");
-          this->postUpdateStartBarrier->Wait();
-        }
-        if (this->postUpdateThreadsRunning)
-        {
-          ZoneScopedN("Run PostUpdate");
-          system->PostUpdate(this->currentInfo, this->entityCompMgr);
-        }
-        {
-          ZoneScopedN("Stop Barrier");
-          this->postUpdateStopBarrier->Wait();
-        }
-      }
-      gzdbg << "Exiting postupdate worker thread ("
-        << id << ")" << std::endl;
-    }));
-    id++;
-  }
+  //   this->postUpdateThreads.push_back(std::thread([&, id]()
+  //   {
+  //     std::stringstream ss;
+  //     ss << "PostUpdateThread: " << id;
+  //     GZ_PROFILE_THREAD_NAME(ss.str().c_str());
+  //     pthread_setname_np(pthread_self(), ss.str().c_str());
+  //     while (this->postUpdateThreadsRunning)
+  //     {
+  //       {
+  //         ZoneScopedN("Start Barrier");
+  //         this->postUpdateStartBarrier->Wait();
+  //       }
+  //       if (this->postUpdateThreadsRunning)
+  //       {
+  //         ZoneScopedN("Run PostUpdate");
+  //         system->PostUpdate(this->currentInfo, this->entityCompMgr);
+  //       }
+  //       {
+  //         ZoneScopedN("Stop Barrier");
+  //         this->postUpdateStopBarrier->Wait();
+  //       }
+  //     }
+  //     gzdbg << "Exiting postupdate worker thread ("
+  //       << id << ")" << std::endl;
+  //   }));
+  //   id++;
+  // }
 }
 
 /////////////////////////////////////////////////
@@ -624,24 +624,28 @@ void SimulationRunner::UpdateSystems()
   }
 
   {
-    ZoneScopedNS("PostUpdate", 10);
+    GZ_PROFILE("PostUpdate");
     this->entityCompMgr.LockAddingEntitiesToViews(true);
     // If no systems implementing PostUpdate have been added, then
     // the barriers will be uninitialized, so guard against that condition.
-    if (this->postUpdateStartBarrier && this->postUpdateStopBarrier)
+    // if (this->postUpdateStartBarrier && this->postUpdateStopBarrier)
+    // {
+    //   // Release the GIL from the main thread to run PostUpdate threads which
+    //   // might be calling into python. The system that does call into python
+    //   // needs to lock the GIL from its thread.
+    //   // MaybeGilScopedRelease release;
+    //   {
+    //     ZoneScopedN("Start Barrier");
+    //     this->postUpdateStartBarrier->Wait();
+    //   }
+    //   {
+    //     ZoneScopedN("Stop Barrier");
+    //     this->postUpdateStopBarrier->Wait();
+    //   }
+    // }
+    for (auto &system : this->systemMgr->SystemsPostUpdate())
     {
-      // Release the GIL from the main thread to run PostUpdate threads which
-      // might be calling into python. The system that does call into python
-      // needs to lock the GIL from its thread.
-      // MaybeGilScopedRelease release;
-      {
-        ZoneScopedN("Start Barrier");
-        this->postUpdateStartBarrier->Wait();
-      }
-      {
-        ZoneScopedN("Stop Barrier");
-        this->postUpdateStopBarrier->Wait();
-      }
+      system->PostUpdate(this->currentInfo, this->entityCompMgr);
     }
     this->entityCompMgr.LockAddingEntitiesToViews(false);
   }
@@ -806,6 +810,9 @@ bool SimulationRunner::Run(const uint64_t _iterations)
   while (this->running && (_iterations == 0 ||
        processedIterations < _iterations))
   {
+
+    // Record when the update step starts.
+    this->prevUpdateRealTime = std::chrono::steady_clock::now();
     GZ_PROFILE("SimulationRunner::Run - Iteration");
 
     // Update the step size and desired rtf
@@ -815,27 +822,6 @@ bool SimulationRunner::Run(const uint64_t _iterations)
     // the update period.
     sleepTime = 0ns;
     actualSleep = 0ns;
-
-    sleepTime = std::max(0ns, this->prevUpdateRealTime +
-        this->updatePeriod - std::chrono::steady_clock::now() -
-        this->sleepOffset);
-
-    // Only sleep if needed.
-    if (sleepTime > 0ns)
-    {
-      GZ_PROFILE("Sleep");
-      // Get the current time, sleep for the duration needed to match the
-      // updatePeriod, and then record the actual time slept.
-      startTime = std::chrono::steady_clock::now();
-      std::this_thread::sleep_for(sleepTime);
-      actualSleep = std::chrono::steady_clock::now() - startTime;
-    }
-    ZoneNamedN(__zone_after_sleep, "After Sleep", true);
-    // Exponentially average out the difference between expected sleep time
-    // and actual sleep time.
-    this->sleepOffset =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(
-          (actualSleep - sleepTime) * 0.01 + this->sleepOffset * 0.99);
 
     // Update time information. This will update the iteration count, RTF,
     // and other values.
@@ -871,6 +857,32 @@ bool SimulationRunner::Run(const uint64_t _iterations)
     }
 
     this->resetInitiated = false;
+
+    sleepTime = std::max(0ns, this->prevUpdateRealTime +
+        this->updatePeriod - std::chrono::steady_clock::now() -
+        this->sleepOffset);
+
+    auto adjustedSleepTime = std::chrono::duration_cast<std::chrono::nanoseconds>(sleepTime * 0.99);
+    // Only sleep if needed.
+    if (sleepTime > 0ns)
+    {
+      GZ_PROFILE("Sleep");
+      // Get the current time, sleep for the duration needed to match the
+      // updatePeriod, and then record the actual time slept.
+      startTime = std::chrono::steady_clock::now();
+      std::this_thread::sleep_for(adjustedSleepTime );
+      actualSleep = std::chrono::steady_clock::now() - startTime;
+    }
+    ZoneNamedN(__zone_after_sleep, "After Sleep", true);
+    // Exponentially average out the difference between expected sleep time
+    // and actual sleep time.
+    // this->sleepOffset =
+      // std::chrono::duration_cast<std::chrono::nanoseconds>(
+          // (actualSleep - sleepTime) * 0.1 + this->sleepOffset * 0.9);
+    this->sleepOffset = std::max(0ns, actualSleep - adjustedSleepTime );
+    TracyPlot("sleepOffset", (std::chrono::duration<double, std::micro>(this->sleepOffset).count()));
+
+    FrameMark;
   }
 
   this->running = false;
@@ -890,9 +902,6 @@ void SimulationRunner::Step(const UpdateInfo &_info)
 
   // Publish info
   this->PublishStats();
-
-  // Record when the update step starts.
-  this->prevUpdateRealTime = std::chrono::steady_clock::now();
 
   this->levelMgr->UpdateLevelsState();
 
@@ -952,8 +961,6 @@ void SimulationRunner::Step(const UpdateInfo &_info)
   // Each network manager takes care of marking its components as unchanged
   if (!this->networkMgr)
     this->entityCompMgr.SetAllComponentsUnchanged();
-
-  FrameMark;
 }
 
 //////////////////////////////////////////////////

@@ -153,12 +153,16 @@
 
 #ifdef GZ_PROFILE
 #undef GZ_PROFILE
-#define GZ_PROFILE ZoneScopedN
 #endif
+#define GZ_PROFILE ZoneScopedN
+
 #ifdef GZ_PROFILE_THREAD_NAME
 #undef GZ_PROFILE_THREAD_NAME
-#define GZ_PROFILE_THREAD_NAME tracy::SetThreadName
 #endif
+#define GZ_PROFILE_THREAD_NAME tracy::SetThreadName
+
+
+
 using namespace gz;
 using namespace gz::sim;
 using namespace gz::sim::systems;
