@@ -16,7 +16,6 @@
 */
 
 #include "tracy/Tracy.hpp"
-#include "pthread.h"
 #include "SimulationRunner.hh"
 
 #include <algorithm>
@@ -561,37 +560,36 @@ void SimulationRunner::ProcessSystemQueue()
   this->postUpdateThreadsRunning = true;
   int id = 0;
 
-  // for (auto &system : this->systemMgr->SystemsPostUpdate())
-  // {
-  //   gzdbg << "Creating postupdate worker thread (" << id << ")" << std::endl;
+  for (auto &system : this->systemMgr->SystemsPostUpdate())
+  {
+    gzdbg << "Creating postupdate worker thread (" << id << ")" << std::endl;
 
-  //   this->postUpdateThreads.push_back(std::thread([&, id]()
-  //   {
-  //     std::stringstream ss;
-  //     ss << "PostUpdateThread: " << id;
-  //     GZ_PROFILE_THREAD_NAME(ss.str().c_str());
-  //     pthread_setname_np(pthread_self(), ss.str().c_str());
-  //     while (this->postUpdateThreadsRunning)
-  //     {
-  //       {
-  //         ZoneScopedN("Start Barrier");
-  //         this->postUpdateStartBarrier->Wait();
-  //       }
-  //       if (this->postUpdateThreadsRunning)
-  //       {
-  //         ZoneScopedN("Run PostUpdate");
-  //         system->PostUpdate(this->currentInfo, this->entityCompMgr);
-  //       }
-  //       {
-  //         ZoneScopedN("Stop Barrier");
-  //         this->postUpdateStopBarrier->Wait();
-  //       }
-  //     }
-  //     gzdbg << "Exiting postupdate worker thread ("
-  //       << id << ")" << std::endl;
-  //   }));
-  //   id++;
-  // }
+    this->postUpdateThreads.push_back(std::thread([&, id]()
+    {
+      std::stringstream ss;
+      ss << "PostUpdateThread: " << id;
+      GZ_PROFILE_THREAD_NAME(ss.str().c_str());
+      while (this->postUpdateThreadsRunning)
+      {
+        {
+          ZoneScopedN("Start Barrier");
+          this->postUpdateStartBarrier->Wait();
+        }
+        if (this->postUpdateThreadsRunning)
+        {
+          ZoneScopedN("Run PostUpdate");
+          system->PostUpdate(this->currentInfo, this->entityCompMgr);
+        }
+        {
+          ZoneScopedN("Stop Barrier");
+          this->postUpdateStopBarrier->Wait();
+        }
+      }
+      gzdbg << "Exiting postupdate worker thread ("
+        << id << ")" << std::endl;
+    }));
+    id++;
+  }
 }
 
 /////////////////////////////////////////////////
@@ -628,25 +626,25 @@ void SimulationRunner::UpdateSystems()
     this->entityCompMgr.LockAddingEntitiesToViews(true);
     // If no systems implementing PostUpdate have been added, then
     // the barriers will be uninitialized, so guard against that condition.
-    // if (this->postUpdateStartBarrier && this->postUpdateStopBarrier)
-    // {
-    //   // Release the GIL from the main thread to run PostUpdate threads which
-    //   // might be calling into python. The system that does call into python
-    //   // needs to lock the GIL from its thread.
-    //   // MaybeGilScopedRelease release;
-    //   {
-    //     ZoneScopedN("Start Barrier");
-    //     this->postUpdateStartBarrier->Wait();
-    //   }
-    //   {
-    //     ZoneScopedN("Stop Barrier");
-    //     this->postUpdateStopBarrier->Wait();
-    //   }
-    // }
-    for (auto &system : this->systemMgr->SystemsPostUpdate())
+    if (this->postUpdateStartBarrier && this->postUpdateStopBarrier)
     {
-      system->PostUpdate(this->currentInfo, this->entityCompMgr);
+      // Release the GIL from the main thread to run PostUpdate threads which
+      // might be calling into python. The system that does call into python
+      // needs to lock the GIL from its thread.
+      // MaybeGilScopedRelease release;
+      {
+        ZoneScopedN("Start Barrier");
+        this->postUpdateStartBarrier->Wait();
+      }
+      {
+        ZoneScopedN("Stop Barrier");
+        this->postUpdateStopBarrier->Wait();
+      }
     }
+    // for (auto &system : this->systemMgr->SystemsPostUpdate())
+    // {
+    //   system->PostUpdate(this->currentInfo, this->entityCompMgr);
+    // }
     this->entityCompMgr.LockAddingEntitiesToViews(false);
   }
 }
