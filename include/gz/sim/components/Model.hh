@@ -43,50 +43,6 @@ namespace serializers
     public: static std::ostream &Serialize(std::ostream &_out,
                 const sdf::Model &_model)
     {
-      sdf::ElementPtr modelElem = _model.Element();
-      if (!modelElem)
-      {
-        gzwarn << "Unable to serialize sdf::Model" << std::endl;
-        return _out;
-      }
-
-      bool skip = false;
-      if (modelElem->HasElement("pose"))
-      {
-        sdf::ElementPtr poseElem = modelElem->GetElement("pose");
-        if (poseElem->GetAttribute("relative_to")->GetSet())
-        {
-          // Skip serializing models with //pose/@relative_to attribute
-          // since deserialization will fail. This could be a nested model.
-          // see https://github.com/gazebosim/gz-sim/issues/1071
-          // Once https://github.com/gazebosim/sdformat/issues/820 is
-          // resolved, there should be an API that returns sdf::Errors objects
-          // instead of printing console msgs so it would be easier to ignore
-          // specific errors in Deserialize.
-          static bool warned = false;
-          if (!warned)
-          {
-            gzwarn << "Skipping serialization / deserialization for models "
-                    << "with //pose/@relative_to attribute."
-                    << std::endl;
-            warned = true;
-          }
-          skip = true;
-        }
-      }
-
-      if (!skip)
-      {
-        _out << "<?xml version=\"1.0\" ?>"
-              << "<sdf version='" << SDF_PROTOCOL_VERSION << "'>"
-              << modelElem->ToString("")
-              << "</sdf>";
-
-      }
-      else
-      {
-        _out << "";
-      }
       return _out;
     }
 
@@ -97,22 +53,6 @@ namespace serializers
     public: static std::istream &Deserialize(std::istream &_in,
                 sdf::Model &_model)
     {
-      std::string sdf(std::istreambuf_iterator<char>(_in), {});
-      if (sdf.empty())
-      {
-        return _in;
-      }
-
-      // Its super expensive to create an SDFElement for some reason
-      sdf::Root root;
-      sdf::Errors errors = root.LoadSdfString(sdf);
-      if (!root.Model())
-      {
-        gzwarn << "Unable to deserialize sdf::Model " << sdf<< std::endl;
-        return _in;
-      }
-
-      _model = *root.Model();
       return _in;
     }
   };
