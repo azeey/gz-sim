@@ -16,6 +16,7 @@
 */
 
 #include <cstdint>
+#include <execution>
 #include <set>
 
 #include <gz/common/Console.hh>
@@ -461,6 +462,59 @@ void SdfEntityCreator::CreateEntities(const sdf::World *_world,
   this->dataPtr->eventManager->Emit<events::LoadSdfPlugins>(_worldEntity,
       _world->Plugins());
 
+
+  // Load all meshes now and cache them
+  gzdbg << "Loading all meshes\n";
+  std::vector<const sdf::Mesh*> meshesToLoad;
+  this->dataPtr->ecm->Each<components::Geometry>([&](const Entity &_, const components::Geometry * _geom) {
+    if (_geom->Data().MeshShape())
+      meshesToLoad.push_back(_geom->Data().MeshShape());
+    return true;
+  });
+
+  unsigned int numThreads = std::thread::hardware_concurrency();
+  if (numThreads == 0) {
+    numThreads = 2;
+  }
+
+  // Stop if there's nothing to do
+  if (meshesToLoad.empty()) {
+    return;
+  }
+
+  // Calculate the size of each chunk (using ceiling division)
+  size_t blockSize = (meshesToLoad.size() + numThreads - 1) / numThreads;
+
+  // A vector to hold the futures
+  std::vector<std::future<void>> futures;
+
+  // Launch a task for each chunk
+  for (unsigned int i = 0; i < numThreads; ++i) {
+    size_t start = i * blockSize;
+    size_t end = std::min(start + blockSize, meshesToLoad.size());
+
+    // Avoid launching threads for empty ranges
+    if (start >= end) {
+      break;
+    }
+
+    // Launch an asynchronous task
+    futures.push_back(std::async(std::launch::async, 
+                                 // Lambda to process the chunk
+                                 // Capture 'items' and 'func' by ref, 'start' and 'end' by value
+                                 [&, start, end]() {
+                                 for (size_t j = start; j < end; ++j) {
+                                 loadMesh(*meshesToLoad[j]);
+                                 }
+                                 }
+                                 ));
+  }
+
+  // Wait for all tasks to complete
+  // f.get() blocks until the future is ready (i.e., the thread is done)
+  for (auto& f : futures) {
+    f.get();
+  }
   // Load model plugins after the world plugin.
   this->LoadModelPlugins();
 }
