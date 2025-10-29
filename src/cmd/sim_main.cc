@@ -170,7 +170,7 @@ int launchProcess(
                        NULL, NULL, &si, &pi))
     {
       gzerr << "Failure in creating process for command "
-            << command.str() << std::endl;
+            << command << std::endl;
       return -1;
     }
 
