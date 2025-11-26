@@ -1245,6 +1245,87 @@ void RenderUtil::Update()
           std::get<0>(link), std::get<1>(link), std::get<2>(link));
     }
 
+    auto loadAllMeshes = [&]
+    {
+      // Load all meshes now and cache them
+      std::vector<const sdf::Mesh *> meshesToLoad;
+      for (const auto &visual : newVisuals)
+      {
+        const auto &vis = std::get<1>(visual);
+        auto *geom = vis.Geom();
+        if (geom)
+        {
+          auto *mesh = vis.Geom()->MeshShape();
+          if (mesh)
+          {
+            meshesToLoad.push_back(mesh);
+          }
+        }
+      }
+      // Stop if there's nothing to do
+      if (meshesToLoad.empty())
+      {
+        return;
+      }
+
+      unsigned int numThreads = std::thread::hardware_concurrency();
+      if (numThreads == 0)
+      {
+        numThreads = 2;
+      }
+      // numThreads = 1;
+      gzdbg << "Loading " << meshesToLoad.size() << " meshes on " << numThreads
+            << " threads\n";
+      auto tStart = std::chrono::steady_clock::now();
+
+
+      // Calculate the size of each chunk (using ceiling division)
+      size_t blockSize = (meshesToLoad.size() + numThreads - 1) / numThreads;
+
+      // A vector to hold the futures
+      std::vector<std::future<void>> futures;
+
+      // Launch a task for each chunk
+      for (unsigned int i = 0; i < numThreads; ++i)
+      {
+        size_t start = i * blockSize;
+        size_t end = std::min(start + blockSize, meshesToLoad.size());
+
+        // Avoid launching threads for empty ranges
+        if (start >= end)
+        {
+          break;
+        }
+
+        // Launch an asynchronous task
+        futures.push_back(std::async(
+            std::launch::async,
+            // Lambda to process the chunk
+            // Capture 'items' and 'func' by ref, 'start' and 'end' by value
+            [&, start, end]()
+            {
+              for (size_t j = start; j < end; ++j)
+              {
+                loadMesh(*meshesToLoad[j]);
+              }
+            }));
+      }
+
+      // Wait for all tasks to complete
+      // f.get() blocks until the future is ready (i.e., the thread is done)
+      for (auto &f : futures)
+      {
+        f.get();
+      }
+      auto tEnd = std::chrono::steady_clock::now();
+
+      auto milliseconds =
+          std::chrono::duration_cast<std::chrono::milliseconds>(tEnd - tStart)
+              .count();
+      gzdbg << "Done loading meshes. Took " << milliseconds << " ms\n";
+    };
+
+    // loadAllMeshes();
     for (const auto &visual : newVisuals)
     {
       this->dataPtr->sceneManager.CreateVisual(

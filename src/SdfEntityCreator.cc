@@ -15,6 +15,7 @@
  *
 */
 
+#include <chrono>
 #include <cstdint>
 #include <execution>
 #include <set>
@@ -464,9 +465,8 @@ void SdfEntityCreator::CreateEntities(const sdf::World *_world,
 
 
   // Load all meshes now and cache them
-  gzdbg << "Loading all meshes\n";
   std::vector<const sdf::Mesh*> meshesToLoad;
-  this->dataPtr->ecm->Each<components::Geometry>([&](const Entity &_, const components::Geometry * _geom) {
+  this->dataPtr->ecm->Each<components::Geometry>([&](const Entity &, const components::Geometry * _geom) {
     if (_geom->Data().MeshShape())
       meshesToLoad.push_back(_geom->Data().MeshShape());
     return true;
@@ -476,6 +476,9 @@ void SdfEntityCreator::CreateEntities(const sdf::World *_world,
   if (numThreads == 0) {
     numThreads = 2;
   }
+  // numThreads = 1;
+  gzdbg << "Loading " << meshesToLoad.size() << " meshes on " << numThreads << " threads\n";
+  auto tStart = std::chrono::steady_clock::now();
 
   // Stop if there's nothing to do
   if (meshesToLoad.empty()) {
@@ -499,7 +502,7 @@ void SdfEntityCreator::CreateEntities(const sdf::World *_world,
     }
 
     // Launch an asynchronous task
-    futures.push_back(std::async(std::launch::async, 
+    futures.push_back(std::async(std::launch::async,
                                  // Lambda to process the chunk
                                  // Capture 'items' and 'func' by ref, 'start' and 'end' by value
                                  [&, start, end]() {
@@ -515,6 +518,10 @@ void SdfEntityCreator::CreateEntities(const sdf::World *_world,
   for (auto& f : futures) {
     f.get();
   }
+  auto tEnd = std::chrono::steady_clock::now();
+
+  auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(tEnd - tStart).count();
+  gzdbg << "Done loading meshes. Took " << milliseconds << " ms\n";
   // Load model plugins after the world plugin.
   this->LoadModelPlugins();
 }
