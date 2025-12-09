@@ -30,10 +30,21 @@
 #include <gz/common/SingletonT.hh>
 #include <gz/common/Util.hh>
 #include <gz/sim/components/Component.hh>
+#include <gz/sim/EntityComponentManager.hh>
 #include <gz/sim/config.hh>
 #include <gz/sim/Export.hh>
 #include <gz/sim/Types.hh>
 #include <gz/utils/NeverDestroyed.hh>
+
+
+#ifdef HAVE_PYBIND11
+  #include <gz/sim/detail/ComponentPybindRegistry.hh>
+  #define GZ_SIM_REGISTER_COMPONENT_PYBIND(_classname) \
+    [[maybe_unused]] static gz::sim::python::AddPybindGetterSetter<_classname> \
+        GzSimPybindComponentInitializer##_classname;
+#else
+  #define GZ_SIM_REGISTER_COMPONENT_PYBIND(_classname)
+#endif
 
 namespace gz
 {
@@ -435,7 +446,8 @@ namespace components
     } \
   }; \
   static GzSimComponents##_classname\
-    GzSimComponentsInitializer##_classname;
+    GzSimComponentsInitializer##_classname; \
+  GZ_SIM_REGISTER_COMPONENT_PYBIND(_classname)
 }
 }
 }
