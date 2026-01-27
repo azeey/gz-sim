@@ -31,3 +31,21 @@ gz_build_tests(TYPE UNIT
   ENVIRONMENT
   GZ_SIM_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
 )
+
+
+
+gz_find_package(mujoco
+  REQUIRED_BY mujoco
+  PKGCONFIG_IGNORE # TODO(azeey) Revisit this
+  CONFIG)
+
+gz_add_system(mujoco_physics
+  SOURCES
+    MujocoPhysics.cc
+  PUBLIC_LINK_LIBS
+    mujoco::mujoco
+    gz-common::gz-common
+    gz-common::geospatial
+    gz-common::graphics
+    gz-common::profiler
+)
