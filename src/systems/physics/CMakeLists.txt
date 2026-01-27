@@ -39,7 +39,7 @@ gz_find_package(mujoco
   PKGCONFIG_IGNORE # TODO(azeey) Revisit this
   CONFIG)
 
-gz_add_system(mujoco_physics
+gz_add_system(mujoco-physics
   SOURCES
     MujocoPhysics.cc
   PUBLIC_LINK_LIBS
