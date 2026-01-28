@@ -39,6 +39,7 @@
 #include <sdf/Box.hh>
 #include <sdf/Cylinder.hh>
 #include <sdf/Mesh.hh>
+#include <sdf/Plane.hh>
 #include <sdf/Sphere.hh>
 
 #include "gz/sim/EntityComponentManager.hh"
@@ -149,27 +150,20 @@ bool MujocoPhysics::NeedsRebuild(const EntityComponentManager &_ecm)
 {
   // 1. Check for new entities using EachNew
   bool rebuild = false;
-  _ecm.EachNew<components::Model>(
-      [&](const Entity &, const components::Model *)
-      {
-        rebuild = true;
-        return false;
-      });
+  auto check = [&](const Entity &, const auto *)
+  {
+    rebuild = true;
+    return false;
+  };
 
-  if (rebuild)
-    return true;
+  _ecm.EachNew<components::Model>(check);
+  if (rebuild) return true;
 
   // 2. Check for removed entities
   if (this->model)
   {
-    _ecm.EachRemoved<components::Model>(
-        [&](const Entity &, const components::Model *)
-        {
-          rebuild = true;
-          return false;
-        });
-    if (rebuild)
-      return true;
+    _ecm.EachRemoved<components::Model>(check);
+    if (rebuild) return true;
   }
 
   return false;
@@ -274,9 +268,9 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
                           this->data->xquat[4*i + 3]
                       );
                       
-                      _ecm.SetComponentData<components::Pose>(modelEntity, math::Pose3d(pos, rot));
-                      _ecm.SetChanged(modelEntity, components::Pose::typeId,
-                                      ComponentState::PeriodicChange);
+                      // _ecm.SetComponentData<components::Pose>(modelEntity, math::Pose3d(pos, rot));
+                      // _ecm.SetChanged(modelEntity, components::Pose::typeId,
+                      //                 ComponentState::PeriodicChange);
                   }
               } catch (...) {}
           }
@@ -286,10 +280,10 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
 
 void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
 {
-  if (this->model && this->data)
-  {
-    return;
-  }
+  // if (this->model && this->data)
+  // {
+  //   this->Update(gz::sim::UpdateInfo{}, _ecm);
+  // }
 
   if (this->spec) mj_deleteSpec(this->spec);
   this->spec = mj_makeSpec();
@@ -313,6 +307,14 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
   {
       mjsElement *firstBody = mjs_firstElement(this->spec, mjOBJ_BODY);
       if (firstBody) worldbody = mjs_asBody(firstBody);
+  }
+
+  if (!worldbody)
+  {
+      gzerr << "Mujoco spec has no world body!" << std::endl;
+      mj_deleteSpec(this->spec);
+      this->spec = nullptr;
+      return;
   }
 
   // Add Models
@@ -456,10 +458,17 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
     math::Pose3d linkPoseInModel = linkPoseComp ? linkPoseComp->Data() : math::Pose3d::Zero;
     math::Pose3d worldPoseOfLink = modelPose * linkPoseInModel;
     math::Pose3d worldPoseOfParent = modelPose * parentPoseInModel;
-    math::Pose3d relPose = worldPoseOfParent.Inverse() * worldPoseOfLink;
+    // math::Pose3d relPose = worldPoseOfParent.Inverse() * worldPoseOfLink;
+    math::Pose3d relPose = worldPoseOfLink;
+    gzdbg << "link: " << linkPoseInModel << " world: " << worldPoseOfLink << " parent: " << worldPoseOfParent << " relPose: " << relPose << std::endl;
 
     mjsBody *linkBody = mjs_addBody(parentBody, nullptr);
-    mjs_setName((mjsElement*)linkBody, ("body_" + std::to_string(linkEntity)).c_str());
+    if (!linkBody)
+    {
+      gzerr << "Failed to add body for entity " << linkEntity << std::endl;
+      return;
+    }
+    mjs_setName(linkBody->element, ("body_" + std::to_string(linkEntity)).c_str());
     
     linkBody->pos[0] = relPose.Pos().X();
     linkBody->pos[1] = relPose.Pos().Y();
@@ -483,7 +492,7 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
         if (jointTypeComp && jointTypeComp->Data() != sdf::JointType::FIXED)
         {
             mjsJoint *joint = mjs_addJoint(linkBody, nullptr);
-            mjs_setName((mjsElement*)joint, ("joint_" + std::to_string(jointEntity)).c_str());
+            mjs_setName(joint->element, ("joint_" + std::to_string(jointEntity)).c_str());
             
             if (jointTypeComp->Data() == sdf::JointType::REVOLUTE) joint->type = mjJNT_HINGE;
             else if (jointTypeComp->Data() == sdf::JointType::PRISMATIC) joint->type = mjJNT_SLIDE;
@@ -531,7 +540,7 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
         {
             const auto &geom = geomComp->Data();
             mjsGeom *mjsg = mjs_addGeom(linkBody, nullptr);
-            mjs_setName((mjsElement*)mjsg, ("geom_" + std::to_string(colEntity)).c_str());
+            mjs_setName(mjsg->element, ("geom_" + std::to_string(colEntity)).c_str());
             
             mjsg->pos[0] = colPose.Pos().X();
             mjsg->pos[1] = colPose.Pos().Y();
@@ -559,12 +568,24 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
                 mjsg->size[0] = geom.CylinderShape()->Radius();
                 mjsg->size[1] = geom.CylinderShape()->Length()/2.0;
             }
+            else if (geom.Type() == sdf::GeometryType::PLANE)
+            {
+
+              // Set mass to 0 to mark the body as static
+              mjsg->type = mjGEOM_PLANE;
+              for (int j = 0; j < 2; ++j)
+              {
+                mjsg->size[j] = geom.PlaneShape()->Size()[j] / 2.0;
+              }
+              mjsg->size[2] = 1.0;
+              break;
+            }
             else if (geom.Type() == sdf::GeometryType::MESH && geom.MeshShape())
             {
                 mjsMesh *meshSpec = mjs_addMesh(spec, nullptr);
                 std::string uri = geom.MeshShape()->Uri();
                 std::string path = asFullPath(uri, "");
-                mjs_setName((mjsElement*)meshSpec, uri.c_str());
+                mjs_setName(meshSpec->element, uri.c_str());
                 mjs_setString(meshSpec->file, path.c_str());
                 meshSpec->scale[0] = geom.MeshShape()->Scale().X();
                 meshSpec->scale[1] = geom.MeshShape()->Scale().Y();
