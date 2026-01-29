@@ -242,40 +242,31 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
         return true;
     });
 
-  // 2. Root Link Poses (update associated Model Poses)
-  for (int i = 1; i < this->model->nbody; ++i)
-  {
-      if (this->model->body_parentid[i] == 0)
-      {
-          const char* name = mj_id2name(this->model, mjOBJ_BODY, i);
-          if (name && std::string(name).find("body_") == 0)
-          {
-              try {
-                  Entity linkEntity = std::stoull(name + 5);
-                  auto parentComp = _ecm.Component<components::ParentEntity>(linkEntity);
-                  if (parentComp)
-                  {
-                      Entity modelEntity = parentComp->Data();
-                      math::Vector3d pos(
-                          this->data->xpos[3*i + 0],
-                          this->data->xpos[3*i + 1],
-                          this->data->xpos[3*i + 2]
-                      );
-                      math::Quaterniond rot(
-                          this->data->xquat[4*i + 0],
-                          this->data->xquat[4*i + 1],
-                          this->data->xquat[4*i + 2],
-                          this->data->xquat[4*i + 3]
-                      );
-                      
-                      // _ecm.SetComponentData<components::Pose>(modelEntity, math::Pose3d(pos, rot));
-                      // _ecm.SetChanged(modelEntity, components::Pose::typeId,
-                      //                 ComponentState::PeriodicChange);
-                  }
-              } catch (...) {}
-          }
-      }
-  }
+  // 2. Link Poses
+  _ecm.Each<components::Link, components::MujocoBodyId, components::Pose>(
+    [&](const Entity &entity, const components::Link *,
+        const components::MujocoBodyId *bodyIdComp,
+        components::Pose *poseComp)
+    {
+        int bodyId = bodyIdComp->Data();
+        if (bodyId > 0 && bodyId < this->model->nbody)
+        {
+            poseComp->Data().Pos().Set(
+                this->data->xpos[3*bodyId + 0],
+                this->data->xpos[3*bodyId + 1],
+                this->data->xpos[3*bodyId + 2]
+            );
+            poseComp->Data().Rot().Set(
+                this->data->xquat[4*bodyId + 0],
+                this->data->xquat[4*bodyId + 1],
+                this->data->xquat[4*bodyId + 2],
+                this->data->xquat[4*bodyId + 3]
+            );
+            _ecm.SetChanged(entity, components::Pose::typeId,
+                ComponentState::PeriodicChange);
+        }
+        return true;
+    });
 }
 
 void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
