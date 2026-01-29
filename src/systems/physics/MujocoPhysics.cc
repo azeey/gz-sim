@@ -30,6 +30,7 @@
 #include <gz/common/Console.hh>
 #include <gz/common/MeshManager.hh>
 #include <gz/common/SystemPaths.hh>
+#include <gz/common/Mesh.hh>
 #include <gz/common/Util.hh>
 #include <gz/math/Pose3.hh>
 #include <gz/math/Quaternion.hh>
@@ -243,11 +244,57 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
   //   });
 
   // 2. Link Poses
+  _ecm.Each<components::Model, components::Pose>(
+    [&](const Entity &modelEntity, const components::Model *, components::Pose *modelPoseComp)
+    {
+      auto canonicalLinks = _ecm.ChildrenByComponents(modelEntity, components::CanonicalLink());
+      if (canonicalLinks.empty())
+      {
+        return true;
+      }
+      Entity linkEntity = canonicalLinks[0];
+      auto bodyIdComp = _ecm.Component<components::MujocoBodyId>(linkEntity);
+      if (!bodyIdComp)
+      {
+        return true;
+      }
+
+      int bodyId = bodyIdComp->Data();
+      if (bodyId > 0 && bodyId < this->model->nbody)
+      {
+          gz::math::Pose3d linkWorldPose;
+          linkWorldPose.Pos().Set(
+              this->data->xpos[3*bodyId + 0],
+              this->data->xpos[3*bodyId + 1],
+              this->data->xpos[3*bodyId + 2]
+          );
+          linkWorldPose.Rot().Set(
+              this->data->xquat[4*bodyId + 0],
+              this->data->xquat[4*bodyId + 1],
+              this->data->xquat[4*bodyId + 2],
+              this->data->xquat[4*bodyId + 3]
+          );
+
+          auto linkPoseInModelComp = _ecm.Component<components::Pose>(linkEntity);
+          if (linkPoseInModelComp)
+          {
+            modelPoseComp->Data() = linkWorldPose * linkPoseInModelComp->Data().Inverse();
+            _ecm.SetChanged(modelEntity, components::Pose::typeId, ComponentState::PeriodicChange);
+          }
+      }
+      return true;
+    });
+
   _ecm.Each<components::Link, components::MujocoBodyId, components::Pose>(
     [&](const Entity &entity, const components::Link *,
         const components::MujocoBodyId *bodyIdComp,
         components::Pose *poseComp)
     {
+        if (_ecm.Component<components::CanonicalLink>(entity))
+        {
+          return true;
+        }
+
         int bodyId = bodyIdComp->Data();
         if (bodyId > 0 && bodyId < this->model->nbody)
         {
@@ -360,6 +407,7 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
   {
     gzdbg << "Saved MJCF model to " << mjcf_path << std::endl;
   }
+  mj_forward(this->model, this->data);
 
   // Map Entities & Restore State
   std::unordered_map<std::string, Entity> bodyMap;
@@ -669,17 +717,55 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
             }
             else if (geom.Type() == sdf::GeometryType::MESH && geom.MeshShape())
             {
-                mjsMesh *meshSpec = mjs_addMesh(spec, nullptr);
-                std::string uri = geom.MeshShape()->Uri();
-                std::string path = asFullPath(uri, "");
-                mjs_setName(meshSpec->element, uri.c_str());
-                mjs_setString(meshSpec->file, path.c_str());
-                meshSpec->scale[0] = geom.MeshShape()->Scale().X();
-                meshSpec->scale[1] = geom.MeshShape()->Scale().Y();
-                meshSpec->scale[2] = geom.MeshShape()->Scale().Z();
-                
+                const ::sdf::Mesh *meshSdf = geom.MeshShape();
+                auto &meshManager = *gz::common::MeshManager::Instance();
+                auto *mesh = meshManager.Load(meshSdf->Uri());
+
+                if (nullptr == mesh)
+                {
+                    gzwarn << "Failed to load mesh from [" << meshSdf->Uri() << "]." << std::endl;
+                    mjsg->type = mjGEOM_NONE;
+                    continue;
+                }
+
                 mjsg->type = mjGEOM_MESH;
-                mjs_setString(mjsg->meshname, uri.c_str());
+
+                // Use the mesh's name (typically its URI) as the asset name.
+                // This allows reusing the asset if the same mesh is used multiple times.
+                const std::string meshName = mesh->Name();
+                mjs_setString(mjsg->meshname, meshName.c_str());
+
+                // Create the mesh asset if it doesn't exist yet.
+                if (!mjs_findElement(spec, mjOBJ_MESH, meshName.c_str()))
+                {
+                    auto *muMesh = mjs_addMesh(spec, nullptr);
+                    mjs_setName(muMesh->element, meshName.c_str());
+
+                    const auto &scale = meshSdf->Scale();
+                    muMesh->scale[0] = scale.X();
+                    muMesh->scale[1] = scale.Y();
+                    muMesh->scale[2] = scale.Z();
+
+                    double *verts{nullptr};
+                    int *indices{nullptr};
+
+                    mesh->FillArrays(&verts, &indices);
+
+                    auto nverts = mesh->VertexCount();
+                    if (nverts > 0 && verts)
+                    {
+                      muMesh->uservert->assign(verts, verts + 3 * nverts);
+                    }
+
+                    auto nfaces = mesh->IndexCount();
+                    if (nfaces > 0 && indices)
+                    {
+                      mjs_setInt(muMesh->userface, indices, nfaces);
+                    }
+
+                    delete[] verts;
+                    delete[] indices;
+                }
             }
         }
     }

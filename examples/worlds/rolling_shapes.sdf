@@ -106,6 +106,33 @@
       </link>
     </model>
 
+  <model name='box_mesh'>
+    <pose>4 0 4 0 0 0</pose>
+    <link name='L1'>
+      <visual name='V'>
+        <geometry>
+          <mesh>
+            <uri>model://relative_resource_uri/meshes/box.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name='C1'>
+        <geometry>
+          <mesh>
+              <uri>model://relative_resource_uri/meshes/box.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+
+    <include>
+      <static>false</static>
+      <name>Electrical Box</name>
+      <pose>0 3 3 0 0 0</pose>
+      <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/Electrical Box</uri>
+    </include>
+
     <!-- <model name="cylinder"> -->
     <!--   <pose>0 -1.5 0.5 1.57079632679 0 0</pose> -->
     <!--   <link name="cylinder_link"> -->
