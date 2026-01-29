@@ -89,6 +89,18 @@ namespace components
 
   using MujocoJointId = gz::sim::components::Component<int, class MujocoJointIdTag>;
   GZ_SIM_REGISTER_COMPONENT("gz_sim_components.MujocoJointId", MujocoJointId)
+
+  using NonCanonicalLink = gz::sim::components::Component<components::NoData, class NonCanonicalLinkTag>;
+  GZ_SIM_REGISTER_COMPONENT("gz_sim_components.NonCanonicalLink", NonCanonicalLink)
+
+  struct CanonicalLinkData
+  {
+    int bodyId;
+    gz::math::Pose3d poseInModel;
+  };
+
+  using CanonicalLinkInfo = gz::sim::components::Component<CanonicalLinkData, class CanonicalLinkInfoTag>;
+  GZ_SIM_REGISTER_COMPONENT("gz_sim_components.CanonicalLinkInfo", CanonicalLinkInfo)
 }
 
 namespace systems
@@ -266,42 +278,29 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
     });
 
   // 2. Link Poses
-  _ecm.Each<components::Model, components::Pose, components::ModelCanonicalLink>(
+  _ecm.Each<components::Model, components::Pose, components::CanonicalLinkInfo>(
     [&](const Entity &modelEntity, components::Model *, components::Pose *modelPoseComp,
-        components::ModelCanonicalLink *canonicalLinkComp)
+        components::CanonicalLinkInfo *infoComp)
     {
-      Entity linkEntity = canonicalLinkComp->Data();
-      auto bodyIdComp = _ecm.Component<components::MujocoBodyId>(linkEntity);
-      if (!bodyIdComp)
-      {
-        return true;
-      }
+      const auto &info = infoComp->Data();
+      int bodyId = info.bodyId;
+      const auto &linkPoseInModel = info.poseInModel;
 
-      int bodyId = bodyIdComp->Data();
       if (bodyId > 0 && bodyId < this->model->nbody)
       {
           gz::math::Pose3d linkWorldPose = this->GetLinkWorldPose(bodyId);
-
-          auto linkPoseInModelComp = _ecm.Component<components::Pose>(linkEntity);
-          if (linkPoseInModelComp)
-          {
-            modelPoseComp->Data() = linkWorldPose * linkPoseInModelComp->Data().Inverse();
-            _ecm.SetChanged(modelEntity, components::Pose::typeId, ComponentState::PeriodicChange);
-          }
+          modelPoseComp->Data() = linkWorldPose * linkPoseInModel.Inverse();
+          _ecm.SetChanged(modelEntity, components::Pose::typeId, ComponentState::PeriodicChange);
       }
       return true;
     });
 
-  _ecm.Each<components::Link, components::MujocoBodyId, components::Pose>(
-    [&](const Entity &entity, const components::Link *,
+  _ecm.Each<components::NonCanonicalLink, components::Link, components::MujocoBodyId, components::Pose, components::ParentEntity>(
+    [&](const Entity &entity, const components::NonCanonicalLink *, const components::Link *,
         const components::MujocoBodyId *bodyIdComp,
-        components::Pose *poseComp)
+        components::Pose *poseComp,
+        const components::ParentEntity *parent)
     {
-        if (_ecm.Component<components::CanonicalLink>(entity))
-        {
-          return true;
-        }
-
         int bodyId = bodyIdComp->Data();
         if (bodyId > 0 && bodyId < this->model->nbody)
         {
@@ -309,10 +308,6 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
           gz::math::Pose3d linkWorldPose = this->GetLinkWorldPose(bodyId);
 
           // Get the parent model's world pose
-          auto parent = _ecm.Component<components::ParentEntity>(entity);
-          if (!parent)
-            return true;
-
           auto modelWorldPoseComp = _ecm.Component<components::Pose>(parent->Data());
           if (!modelWorldPoseComp)
             return true;
@@ -416,6 +411,23 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
   }
   mj_forward(this->model, this->data);
 
+  // Tag non-canonical links for faster queries in Update
+  _ecm.Each<components::Link, components::NonCanonicalLink>(
+    [&](const Entity &entity, const auto *, const auto *)
+    {
+      _ecm.RemoveComponent<components::NonCanonicalLink>(entity);
+      return true;
+    });
+  _ecm.Each<components::Link>(
+    [&](const Entity &entity, const auto *)
+    {
+      if (!_ecm.Component<components::CanonicalLink>(entity))
+      {
+        _ecm.CreateComponent(entity, components::NonCanonicalLink());
+      }
+      return true;
+    });
+
   // Map Entities & Restore State
   std::unordered_map<std::string, Entity> bodyMap;
   std::unordered_map<std::string, Entity> jointMap;
@@ -471,6 +483,20 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
       }
     }
   }
+
+  // Create a component that caches information about the canonical link
+  _ecm.Each<components::Model, components::ModelCanonicalLink>(
+    [&](const Entity &modelEntity, const auto*, const auto *linkComp)
+    {
+      Entity linkEntity = linkComp->Data();
+      auto bodyIdComp = _ecm.Component<components::MujocoBodyId>(linkEntity);
+      auto poseComp = _ecm.Component<components::Pose>(linkEntity);
+      if (bodyIdComp && poseComp)
+      {
+        _ecm.CreateComponent(modelEntity, components::CanonicalLinkInfo({bodyIdComp->Data(), poseComp->Data()}));
+      }
+      return true;
+    });
 }
 
 void MujocoPhysics::AddModelToSpec(const EntityComponentManager &_ecm, mjSpec *spec, mjsBody *worldbody, Entity modelEntity)
