@@ -26,6 +26,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <chrono>
 
 #include <gz/common/Console.hh>
 #include <gz/common/MeshManager.hh>
@@ -196,19 +197,23 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
   if (!this->model || !this->data)
     return;
 
+  auto start_time = std::chrono::steady_clock::now();
+
   // Sync ECM -> Mujoco (Forces)
-  // _ecm.Each<components::Joint, components::JointForceCmd, components::MujocoJointId>(
-  //   [&](const Entity &, const components::Joint *, const components::JointForceCmd *cmd, const components::MujocoJointId *jntIdComp)
-  //   {
-  //       int jntId = jntIdComp->Data();
-  //       if (jntId >= 0 && jntId < this->model->njnt)
-  //       {
-  //           int dofAdr = this->model->jnt_dofadr[jntId];
-  //           if (cmd->Data().size() > 0)
-  //               this->data->qfrc_applied[dofAdr] = cmd->Data()[0];
-  //       }
-  //       return true;
-  //   });
+  _ecm.Each<components::Joint, components::JointForceCmd, components::MujocoJointId>(
+    [&](const Entity &, const components::Joint *, const components::JointForceCmd *cmd, const components::MujocoJointId *jntIdComp)
+    {
+        int jntId = jntIdComp->Data();
+        if (jntId >= 0 && jntId < this->model->njnt)
+        {
+            int dofAdr = this->model->jnt_dofadr[jntId];
+            if (cmd->Data().size() > 0)
+                this->data->qfrc_applied[dofAdr] = cmd->Data()[0];
+        }
+        return true;
+    });
+
+  auto ecm_to_mj_done_time = std::chrono::steady_clock::now();
 
   // Step
   if (!_info.paused)
@@ -216,47 +221,49 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
     mj_step(this->model, this->data);
   }
 
+  auto mj_step_done_time = std::chrono::steady_clock::now();
+
   // Sync Mujoco -> ECM
   
   // 1. Joint Positions & Velocities
-  // _ecm.Each<components::Joint, components::MujocoJointId>(
-  //   [&](const Entity &entity, const components::Joint *, const components::MujocoJointId *jntIdComp)
-  //   {
-  //       int jntId = jntIdComp->Data();
-  //       if (jntId >= 0 && jntId < this->model->njnt)
-  //       {
-  //           int qposAdr = this->model->jnt_qposadr[jntId];
-  //           int dofAdr = this->model->jnt_dofadr[jntId];
-  //           
-  //           double pos = this->data->qpos[qposAdr];
-  //           double vel = this->data->qvel[dofAdr];
-  //           
-  //           auto jointPosComp = _ecm.Component<components::JointPosition>(entity);
-  //           if (jointPosComp)
-  //           {
-  //             if (jointPosComp->Data().empty()) jointPosComp->Data().resize(1);
-  //             jointPosComp->Data()[0] = pos;
-  //             _ecm.SetChanged(entity, components::JointPosition::typeId, ComponentState::PeriodicChange);
-  //           }
-  //           else
-  //           {
-  //             _ecm.CreateComponent(entity, components::JointPosition({pos}));
-  //           }
-  //           
-  //           auto jointVelComp = _ecm.Component<components::JointVelocity>(entity);
-  //           if (jointVelComp)
-  //           {
-  //             if (jointVelComp->Data().empty()) jointVelComp->Data().resize(1);
-  //             jointVelComp->Data()[0] = vel;
-  //             _ecm.SetChanged(entity, components::JointVelocity::typeId, ComponentState::PeriodicChange);
-  //           }
-  //           else
-  //           {
-  //             _ecm.CreateComponent(entity, components::JointVelocity({vel}));
-  //           }
-  //       }
-  //       return true;
-  //   });
+  _ecm.Each<components::Joint, components::MujocoJointId>(
+    [&](const Entity &entity, const components::Joint *, const components::MujocoJointId *jntIdComp)
+    {
+        int jntId = jntIdComp->Data();
+        if (jntId >= 0 && jntId < this->model->njnt)
+        {
+            int qposAdr = this->model->jnt_qposadr[jntId];
+            int dofAdr = this->model->jnt_dofadr[jntId];
+            
+            double pos = this->data->qpos[qposAdr];
+            double vel = this->data->qvel[dofAdr];
+            
+            auto jointPosComp = _ecm.Component<components::JointPosition>(entity);
+            if (jointPosComp)
+            {
+              if (jointPosComp->Data().empty()) jointPosComp->Data().resize(1);
+              jointPosComp->Data()[0] = pos;
+              _ecm.SetChanged(entity, components::JointPosition::typeId, ComponentState::PeriodicChange);
+            }
+            else
+            {
+              _ecm.CreateComponent(entity, components::JointPosition({pos}));
+            }
+            
+            auto jointVelComp = _ecm.Component<components::JointVelocity>(entity);
+            if (jointVelComp)
+            {
+              if (jointVelComp->Data().empty()) jointVelComp->Data().resize(1);
+              jointVelComp->Data()[0] = vel;
+              _ecm.SetChanged(entity, components::JointVelocity::typeId, ComponentState::PeriodicChange);
+            }
+            else
+            {
+              _ecm.CreateComponent(entity, components::JointVelocity({vel}));
+            }
+        }
+        return true;
+    });
 
   // 2. Link Poses
   _ecm.Each<components::Model, components::Pose>(
@@ -325,6 +332,17 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
         }
         return true;
     });
+
+  auto mj_to_ecm_done_time = std::chrono::steady_clock::now();
+
+  auto ecm_to_mj_dur = std::chrono::duration_cast<std::chrono::microseconds>(ecm_to_mj_done_time - start_time);
+  auto mj_step_dur = std::chrono::duration_cast<std::chrono::microseconds>(mj_step_done_time - ecm_to_mj_done_time);
+  auto mj_to_ecm_dur = std::chrono::duration_cast<std::chrono::microseconds>(mj_to_ecm_done_time - mj_step_done_time);
+
+  gzdbg << "MujocoPhysics::Update timings:"
+        << " ECM->MJ: " << ecm_to_mj_dur.count() << " us |"
+        << " mj_step: " << mj_step_dur.count() << " us |"
+        << " MJ->ECM: " << mj_to_ecm_dur.count() << " us" << std::endl;
 }
 
 void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
