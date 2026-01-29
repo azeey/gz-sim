@@ -97,10 +97,14 @@ namespace components
   {
     int bodyId;
     gz::math::Pose3d poseInModel;
+    gz::math::Pose3d inversePoseInModel;
   };
 
   using CanonicalLinkInfo = gz::sim::components::Component<CanonicalLinkData, class CanonicalLinkInfoTag>;
   GZ_SIM_REGISTER_COMPONENT("gz_sim_components.CanonicalLinkInfo", CanonicalLinkInfo)
+
+  using ModelInverseWorldPose = gz::sim::components::Component<gz::math::Pose3d, class ModelInverseWorldPoseTag>;
+  GZ_SIM_REGISTER_COMPONENT("gz_sim_components.ModelInverseWorldPose", ModelInverseWorldPose)
 }
 
 namespace systems
@@ -284,13 +288,23 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
     {
       const auto &info = infoComp->Data();
       int bodyId = info.bodyId;
-      const auto &linkPoseInModel = info.poseInModel;
+      const auto &linkPoseInModelInverse = info.inversePoseInModel;
 
       if (bodyId > 0 && bodyId < this->model->nbody)
       {
           gz::math::Pose3d linkWorldPose = this->GetLinkWorldPose(bodyId);
-          modelPoseComp->Data() = linkWorldPose * linkPoseInModel.Inverse();
+          modelPoseComp->Data() = linkWorldPose * linkPoseInModelInverse;
           _ecm.SetChanged(modelEntity, components::Pose::typeId, ComponentState::PeriodicChange);
+
+          auto invPoseComp = _ecm.Component<components::ModelInverseWorldPose>(modelEntity);
+          if (invPoseComp)
+          {
+            invPoseComp->Data() = modelPoseComp->Data().Inverse();
+          }
+          else
+          {
+            _ecm.CreateComponent(modelEntity, components::ModelInverseWorldPose(modelPoseComp->Data().Inverse()));
+          }
       }
       return true;
     });
@@ -307,16 +321,13 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
           // Get the link's world pose from Mujoco
           gz::math::Pose3d linkWorldPose = this->GetLinkWorldPose(bodyId);
 
-          // Get the parent model's world pose
-          auto modelWorldPoseComp = _ecm.Component<components::Pose>(parent->Data());
-          if (!modelWorldPoseComp)
+          // Get the parent model's inverse world pose from the component
+          auto modelInverseWorldPoseComp = _ecm.Component<components::ModelInverseWorldPose>(parent->Data());
+          if (!modelInverseWorldPoseComp)
             return true;
 
           // Convert link's world pose to be relative to the model's world pose
-          gz::math::Pose3d relativePose = modelWorldPoseComp->Data().Inverse() * linkWorldPose;
-
-          // Update the component with the relative pose
-          poseComp->Data() = relativePose;
+          poseComp->Data() = modelInverseWorldPoseComp->Data() * linkWorldPose;
 
           _ecm.SetChanged(entity, components::Pose::typeId,
               ComponentState::PeriodicChange);
@@ -493,7 +504,8 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
       auto poseComp = _ecm.Component<components::Pose>(linkEntity);
       if (bodyIdComp && poseComp)
       {
-        _ecm.CreateComponent(modelEntity, components::CanonicalLinkInfo({bodyIdComp->Data(), poseComp->Data()}));
+        const auto &pose = poseComp->Data();
+        _ecm.CreateComponent(modelEntity, components::CanonicalLinkInfo({bodyIdComp->Data(), pose, pose.Inverse()}));
       }
       return true;
     });
