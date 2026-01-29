@@ -1,0 +1,15 @@
+<mujoco model="MuJoCo Model">
+  <compiler angle="radian"/>
+
+  <option gravity="0 0 -9.8"/>
+
+  <worldbody>
+    <body name="ground_plane::link" pos="0 0 -0.5" quat="0.96639 0 -0.257081 0">
+      <geom name="ground_plane::link::collision" size="50 50 0.05" type="box"/>
+    </body>
+    <body name="box::box_link" pos="0 0 0.5" quat="0.980067 0 0.198669 0">
+      <joint type="free"/>
+      <geom name="box::box_link::box_collision" size="0.5 0.5 0.5" type="box"/>
+    </body>
+  </worldbody>
+</mujoco>

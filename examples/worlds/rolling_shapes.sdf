@@ -12,14 +12,14 @@
     <gz:policies>
       <include_server_config_plugins>false</include_server_config_plugins>
     </gz:policies>
-    <!-- <plugin -->
-    <!--   filename="gz-sim-physics-system" -->
-    <!--   name="gz::sim::systems::Physics"> -->
-    <!-- </plugin> -->
     <plugin
-      filename="gz-sim-mujoco-physics-system"
-      name="gz::sim::systems::MujocoPhysics">
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
     </plugin>
+    <!-- <plugin -->
+    <!--   filename="gz-sim-mujoco-physics-system" -->
+    <!--   name="gz::sim::systems::MujocoPhysics"> -->
+    <!-- </plugin> -->
     <plugin
       filename="gz-sim-user-commands-system"
       name="gz::sim::systems::UserCommands">
@@ -49,18 +49,16 @@
       <link name="link">
         <collision name="collision">
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>100 100</size>
-            </plane>
+            <box>
+              <size>100 100 0.1</size>
+            </box>
           </geometry>
         </collision>
         <visual name="visual">
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>100 100</size>
-            </plane>
+            <box>
+              <size>100 100 0.1</size>
+            </box>
           </geometry>
           <material>
             <ambient>0.8 0.8 0.8 1</ambient>
@@ -72,7 +70,7 @@
     </model>
 
     <model name="box">
-      <pose>0 0 2.5 0 0.4 0</pose>
+      <pose>0 0 0.5 0 0.4 0</pose>
       <link name="box_link">
         <inertial>
           <inertia>

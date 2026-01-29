@@ -181,18 +181,18 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
     return;
 
   // Sync ECM -> Mujoco (Forces)
-  _ecm.Each<components::Joint, components::JointForceCmd, components::MujocoJointId>(
-    [&](const Entity &, const components::Joint *, const components::JointForceCmd *cmd, const components::MujocoJointId *jntIdComp)
-    {
-        int jntId = jntIdComp->Data();
-        if (jntId >= 0 && jntId < this->model->njnt)
-        {
-            int dofAdr = this->model->jnt_dofadr[jntId];
-            if (cmd->Data().size() > 0)
-                this->data->qfrc_applied[dofAdr] = cmd->Data()[0];
-        }
-        return true;
-    });
+  // _ecm.Each<components::Joint, components::JointForceCmd, components::MujocoJointId>(
+  //   [&](const Entity &, const components::Joint *, const components::JointForceCmd *cmd, const components::MujocoJointId *jntIdComp)
+  //   {
+  //       int jntId = jntIdComp->Data();
+  //       if (jntId >= 0 && jntId < this->model->njnt)
+  //       {
+  //           int dofAdr = this->model->jnt_dofadr[jntId];
+  //           if (cmd->Data().size() > 0)
+  //               this->data->qfrc_applied[dofAdr] = cmd->Data()[0];
+  //       }
+  //       return true;
+  //   });
 
   // Step
   if (!_info.paused)
@@ -203,44 +203,44 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
   // Sync Mujoco -> ECM
   
   // 1. Joint Positions & Velocities
-  _ecm.Each<components::Joint, components::MujocoJointId>(
-    [&](const Entity &entity, const components::Joint *, const components::MujocoJointId *jntIdComp)
-    {
-        int jntId = jntIdComp->Data();
-        if (jntId >= 0 && jntId < this->model->njnt)
-        {
-            int qposAdr = this->model->jnt_qposadr[jntId];
-            int dofAdr = this->model->jnt_dofadr[jntId];
-            
-            double pos = this->data->qpos[qposAdr];
-            double vel = this->data->qvel[dofAdr];
-            
-            auto jointPosComp = _ecm.Component<components::JointPosition>(entity);
-            if (jointPosComp)
-            {
-              if (jointPosComp->Data().empty()) jointPosComp->Data().resize(1);
-              jointPosComp->Data()[0] = pos;
-              _ecm.SetChanged(entity, components::JointPosition::typeId, ComponentState::PeriodicChange);
-            }
-            else
-            {
-              _ecm.CreateComponent(entity, components::JointPosition({pos}));
-            }
-            
-            auto jointVelComp = _ecm.Component<components::JointVelocity>(entity);
-            if (jointVelComp)
-            {
-              if (jointVelComp->Data().empty()) jointVelComp->Data().resize(1);
-              jointVelComp->Data()[0] = vel;
-              _ecm.SetChanged(entity, components::JointVelocity::typeId, ComponentState::PeriodicChange);
-            }
-            else
-            {
-              _ecm.CreateComponent(entity, components::JointVelocity({vel}));
-            }
-        }
-        return true;
-    });
+  // _ecm.Each<components::Joint, components::MujocoJointId>(
+  //   [&](const Entity &entity, const components::Joint *, const components::MujocoJointId *jntIdComp)
+  //   {
+  //       int jntId = jntIdComp->Data();
+  //       if (jntId >= 0 && jntId < this->model->njnt)
+  //       {
+  //           int qposAdr = this->model->jnt_qposadr[jntId];
+  //           int dofAdr = this->model->jnt_dofadr[jntId];
+  //           
+  //           double pos = this->data->qpos[qposAdr];
+  //           double vel = this->data->qvel[dofAdr];
+  //           
+  //           auto jointPosComp = _ecm.Component<components::JointPosition>(entity);
+  //           if (jointPosComp)
+  //           {
+  //             if (jointPosComp->Data().empty()) jointPosComp->Data().resize(1);
+  //             jointPosComp->Data()[0] = pos;
+  //             _ecm.SetChanged(entity, components::JointPosition::typeId, ComponentState::PeriodicChange);
+  //           }
+  //           else
+  //           {
+  //             _ecm.CreateComponent(entity, components::JointPosition({pos}));
+  //           }
+  //           
+  //           auto jointVelComp = _ecm.Component<components::JointVelocity>(entity);
+  //           if (jointVelComp)
+  //           {
+  //             if (jointVelComp->Data().empty()) jointVelComp->Data().resize(1);
+  //             jointVelComp->Data()[0] = vel;
+  //             _ecm.SetChanged(entity, components::JointVelocity::typeId, ComponentState::PeriodicChange);
+  //           }
+  //           else
+  //           {
+  //             _ecm.CreateComponent(entity, components::JointVelocity({vel}));
+  //           }
+  //       }
+  //       return true;
+  //   });
 
   // 2. Link Poses
   _ecm.Each<components::Link, components::MujocoBodyId, components::Pose>(
@@ -251,19 +251,37 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
         int bodyId = bodyIdComp->Data();
         if (bodyId > 0 && bodyId < this->model->nbody)
         {
-            poseComp->Data().Pos().Set(
-                this->data->xpos[3*bodyId + 0],
-                this->data->xpos[3*bodyId + 1],
-                this->data->xpos[3*bodyId + 2]
-            );
-            poseComp->Data().Rot().Set(
-                this->data->xquat[4*bodyId + 0],
-                this->data->xquat[4*bodyId + 1],
-                this->data->xquat[4*bodyId + 2],
-                this->data->xquat[4*bodyId + 3]
-            );
-            _ecm.SetChanged(entity, components::Pose::typeId,
-                ComponentState::PeriodicChange);
+          // Get the link's world pose from Mujoco
+          gz::math::Pose3d linkWorldPose;
+          linkWorldPose.Pos().Set(
+              this->data->xpos[3*bodyId + 0],
+              this->data->xpos[3*bodyId + 1],
+              this->data->xpos[3*bodyId + 2]
+          );
+          linkWorldPose.Rot().Set(
+              this->data->xquat[4*bodyId + 0],
+              this->data->xquat[4*bodyId + 1],
+              this->data->xquat[4*bodyId + 2],
+              this->data->xquat[4*bodyId + 3]
+          );
+
+          // Get the parent model's world pose
+          auto parent = _ecm.Component<components::ParentEntity>(entity);
+          if (!parent)
+            return true;
+
+          auto modelWorldPoseComp = _ecm.Component<components::Pose>(parent->Data());
+          if (!modelWorldPoseComp)
+            return true;
+
+          // Convert link's world pose to be relative to the model's world pose
+          gz::math::Pose3d relativePose = modelWorldPoseComp->Data().Inverse() * linkWorldPose;
+
+          // Update the component with the relative pose
+          poseComp->Data() = relativePose;
+
+          _ecm.SetChanged(entity, components::Pose::typeId,
+              ComponentState::PeriodicChange);
         }
         return true;
     });
@@ -331,43 +349,71 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
     return;
   }
 
+  // Save the model to XML for inspection.
+  const char* mjcf_path = "model.xml";
+  char error[1000] = {0};
+  if (mj_saveXML(this->spec, mjcf_path, error, 1000) != 0)
+  {
+    gzerr << "Failed to save MJCF XML: " << error << std::endl;
+  }
+  else
+  {
+    gzdbg << "Saved MJCF model to " << mjcf_path << std::endl;
+  }
+
   // Map Entities & Restore State
+  std::unordered_map<std::string, Entity> bodyMap;
+  std::unordered_map<std::string, Entity> jointMap;
+  _ecm.Each<components::Model>([&](const Entity &modelEntity, const components::Model *)
+  {
+    auto modelName = _ecm.Component<components::Name>(modelEntity)->Data();
+    auto links = _ecm.ChildrenByComponents(modelEntity, components::Link());
+    for (const auto &linkEntity : links)
+    {
+      auto linkName = _ecm.Component<components::Name>(linkEntity)->Data();
+      bodyMap[modelName + "::" + linkName] = linkEntity;
+    }
+    auto joints = _ecm.ChildrenByComponents(modelEntity, components::Joint());
+    for (const auto &jointEntity : joints)
+    {
+      auto jointName = _ecm.Component<components::Name>(jointEntity)->Data();
+      jointMap[modelName + "::" + jointName] = jointEntity;
+    }
+    return true;
+  });
+
   for (int i = 0; i < this->model->nbody; ++i)
   {
     const char* name = mj_id2name(this->model, mjOBJ_BODY, i);
-    if (name && std::string(name).find("body_") == 0)
+    if (name && bodyMap.count(name))
     {
-      try {
-          Entity e = std::stoull(name + 5);
-          auto comp = _ecm.Component<components::MujocoBodyId>(e);
-          if (comp) comp->Data() = i;
-          else _ecm.CreateComponent(e, components::MujocoBodyId(i));
-      } catch (...) {}
+      Entity e = bodyMap.at(name);
+      auto comp = _ecm.Component<components::MujocoBodyId>(e);
+      if (comp) comp->Data() = i;
+      else _ecm.CreateComponent(e, components::MujocoBodyId(i));
     }
   }
 
   for (int i = 0; i < this->model->njnt; ++i)
   {
     const char* name = mj_id2name(this->model, mjOBJ_JOINT, i);
-    if (name && std::string(name).find("joint_") == 0)
+    if (name && jointMap.count(name))
     {
-      try {
-          Entity e = std::stoull(name + 6);
-          auto comp = _ecm.Component<components::MujocoJointId>(e);
-          if (comp) comp->Data() = i;
-          else _ecm.CreateComponent(e, components::MujocoJointId(i));
+      Entity e = jointMap.at(name);
+      auto comp = _ecm.Component<components::MujocoJointId>(e);
+      if (comp) comp->Data() = i;
+      else _ecm.CreateComponent(e, components::MujocoJointId(i));
           
-          auto posComp = _ecm.Component<components::JointPosition>(e);
-          if (posComp && !posComp->Data().empty())
-          {
-              this->data->qpos[this->model->jnt_qposadr[i]] = posComp->Data()[0];
-          }
-          auto velComp = _ecm.Component<components::JointVelocity>(e);
-          if (velComp && !velComp->Data().empty())
-          {
-              this->data->qvel[this->model->jnt_dofadr[i]] = velComp->Data()[0];
-          }
-      } catch (...) {}
+      auto posComp = _ecm.Component<components::JointPosition>(e);
+      if (posComp && !posComp->Data().empty())
+      {
+          this->data->qpos[this->model->jnt_qposadr[i]] = posComp->Data()[0];
+      }
+      auto velComp = _ecm.Component<components::JointVelocity>(e);
+      if (velComp && !velComp->Data().empty())
+      {
+          this->data->qvel[this->model->jnt_dofadr[i]] = velComp->Data()[0];
+      }
     }
   }
 }
@@ -445,13 +491,32 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
     if (node.processed) return;
     node.processed = true;
 
+    auto modelName = _ecm.Component<components::Name>(
+        _ecm.Component<components::ParentEntity>(linkEntity)->Data()
+    )->Data();
+
     auto linkPoseComp = _ecm.Component<components::Pose>(linkEntity);
     math::Pose3d linkPoseInModel = linkPoseComp ? linkPoseComp->Data() : math::Pose3d::Zero;
-    math::Pose3d worldPoseOfLink = modelPose * linkPoseInModel;
-    math::Pose3d worldPoseOfParent = modelPose * parentPoseInModel;
-    // math::Pose3d relPose = worldPoseOfParent.Inverse() * worldPoseOfLink;
-    math::Pose3d relPose = worldPoseOfLink;
-    gzdbg << "link: " << linkPoseInModel << " world: " << worldPoseOfLink << " parent: " << worldPoseOfParent << " relPose: " << relPose << std::endl;
+
+    math::Pose3d relPose;
+    // A root link is identified by not being the child of any joint.
+    if (jointEntity == kNullEntity)
+    {
+      // For a root link, its parent in the spec is the world. Its pose should
+      // be its absolute world pose.
+      relPose = modelPose * linkPoseInModel;
+    }
+    else
+    {
+      // For a child link, its pose in the spec should be relative to its
+      // parent link.
+      relPose = parentPoseInModel.Inverse() * linkPoseInModel;
+    }
+    gzdbg << "link: " << _ecm.Component<components::Name>(linkEntity)->Data()
+          << " modelPose: " << modelPose
+          << " link in model: " << linkPoseInModel
+          << " parent in model: " << parentPoseInModel
+          << " relPose: " << relPose << std::endl;
 
     mjsBody *linkBody = mjs_addBody(parentBody, nullptr);
     if (!linkBody)
@@ -459,7 +524,9 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
       gzerr << "Failed to add body for entity " << linkEntity << std::endl;
       return;
     }
-    mjs_setName(linkBody->element, ("body_" + std::to_string(linkEntity)).c_str());
+    std::string linkName = _ecm.Component<components::Name>(linkEntity)->Data();
+    std::string bodyName = modelName + "::" + linkName;
+    mjs_setName(linkBody->element, bodyName.c_str());
     
     linkBody->pos[0] = relPose.Pos().X();
     linkBody->pos[1] = relPose.Pos().Y();
@@ -483,7 +550,9 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
         if (jointTypeComp && jointTypeComp->Data() != sdf::JointType::FIXED)
         {
             mjsJoint *joint = mjs_addJoint(linkBody, nullptr);
-            mjs_setName(joint->element, ("joint_" + std::to_string(jointEntity)).c_str());
+            std::string jointName = _ecm.Component<components::Name>(jointEntity)->Data();
+            std::string fullJointName = modelName + "::" + jointName;
+            mjs_setName(joint->element, fullJointName.c_str());
             
             if (jointTypeComp->Data() == sdf::JointType::REVOLUTE) joint->type = mjJNT_HINGE;
             else if (jointTypeComp->Data() == sdf::JointType::PRISMATIC) joint->type = mjJNT_SLIDE;
@@ -504,7 +573,7 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
     }
 
     auto inertialComp = _ecm.Component<components::Inertial>(linkEntity);
-    if (inertialComp)
+    if (inertialComp && !modelIsStatic)
     {
         const auto &inertial = inertialComp->Data();
         linkBody->mass = inertial.MassMatrix().Mass();
@@ -519,6 +588,13 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
         linkBody->inertia[1] = inertial.MassMatrix().Iyy();
         linkBody->inertia[2] = inertial.MassMatrix().Izz();
     }
+    else
+    {
+      // For static models, or dynamic models without an <inertial> tag,
+      // let mass be the default (0). Mujoco treats bodies with 0 mass as
+      // being fixed to the world.
+      linkBody->mass = 0;
+    }
 
     auto collisions = _ecm.ChildrenByComponents(linkEntity, components::Collision());
     for (const auto &colEntity : collisions)
@@ -531,7 +607,9 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
         {
             const auto &geom = geomComp->Data();
             mjsGeom *mjsg = mjs_addGeom(linkBody, nullptr);
-            mjs_setName(mjsg->element, ("geom_" + std::to_string(colEntity)).c_str());
+            std::string colName = _ecm.Component<components::Name>(colEntity)->Data();
+            std::string fullGeomName = bodyName + "::" + colName;
+            mjs_setName(mjsg->element, fullGeomName.c_str());
             
             mjsg->pos[0] = colPose.Pos().X();
             mjsg->pos[1] = colPose.Pos().Y();
@@ -561,15 +639,33 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
             }
             else if (geom.Type() == sdf::GeometryType::PLANE)
             {
-
-              // Set mass to 0 to mark the body as static
               mjsg->type = mjGEOM_PLANE;
+
+              // For planes, we must orient the geom's Z-axis to match the
+              // plane's normal vector. The normal vector from SDF is in the
+              // geometry's frame.
+              const auto normalInGeomFrame = geom.PlaneShape()->Normal();
+
+              // The final orientation of the normal in the link's frame is
+              // found by composing the geometry's pose rotation with the normal
+              // vector.
+              const auto normalInLinkFrame = colPose.Rot() * normalInGeomFrame;
+
+              // We compute the rotation that aligns Mujoco's default normal
+              // (Z-axis) with our desired normal in the link frame.
+              gz::math::Quaterniond mujocoRot;
+              mujocoRot.SetFrom2Axes(gz::math::Vector3d::UnitZ, normalInLinkFrame);
+
+              mjsg->quat[0] = mujocoRot.W();
+              mjsg->quat[1] = mujocoRot.X();
+              mjsg->quat[2] = mujocoRot.Y();
+              mjsg->quat[3] = mujocoRot.Z();
+
               for (int j = 0; j < 2; ++j)
               {
                 mjsg->size[j] = geom.PlaneShape()->Size()[j] / 2.0;
               }
               mjsg->size[2] = 1.0;
-              break;
             }
             else if (geom.Type() == sdf::GeometryType::MESH && geom.MeshShape())
             {
