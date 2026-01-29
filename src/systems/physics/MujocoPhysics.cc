@@ -93,6 +93,18 @@ namespace components
 namespace systems
 {
 
+template<typename T>
+void SetMujocoPose(T* _mujocoObject, const gz::math::Pose3d& _pose)
+{
+    _mujocoObject->pos[0] = _pose.Pos().X();
+    _mujocoObject->pos[1] = _pose.Pos().Y();
+    _mujocoObject->pos[2] = _pose.Pos().Z();
+    _mujocoObject->quat[0] = _pose.Rot().W();
+    _mujocoObject->quat[1] = _pose.Rot().X();
+    _mujocoObject->quat[2] = _pose.Rot().Y();
+    _mujocoObject->quat[3] = _pose.Rot().Z();
+}
+
 class MujocoPhysics : public System,
                       public ISystemConfigure,
                       public ISystemUpdate
@@ -133,6 +145,9 @@ class MujocoPhysics : public System,
                                  const math::Pose3d &parentPoseInModel,
                                  const math::Pose3d &modelPose,
                                  bool modelIsStatic);
+
+  private: gz::math::Pose3d GetLinkWorldPose(int _bodyId) const;
+
 
   // Mujoco State
   private: mjSpec *spec = nullptr;
@@ -262,18 +277,7 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
       int bodyId = bodyIdComp->Data();
       if (bodyId > 0 && bodyId < this->model->nbody)
       {
-          gz::math::Pose3d linkWorldPose;
-          linkWorldPose.Pos().Set(
-              this->data->xpos[3*bodyId + 0],
-              this->data->xpos[3*bodyId + 1],
-              this->data->xpos[3*bodyId + 2]
-          );
-          linkWorldPose.Rot().Set(
-              this->data->xquat[4*bodyId + 0],
-              this->data->xquat[4*bodyId + 1],
-              this->data->xquat[4*bodyId + 2],
-              this->data->xquat[4*bodyId + 3]
-          );
+          gz::math::Pose3d linkWorldPose = this->GetLinkWorldPose(bodyId);
 
           auto linkPoseInModelComp = _ecm.Component<components::Pose>(linkEntity);
           if (linkPoseInModelComp)
@@ -299,18 +303,7 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
         if (bodyId > 0 && bodyId < this->model->nbody)
         {
           // Get the link's world pose from Mujoco
-          gz::math::Pose3d linkWorldPose;
-          linkWorldPose.Pos().Set(
-              this->data->xpos[3*bodyId + 0],
-              this->data->xpos[3*bodyId + 1],
-              this->data->xpos[3*bodyId + 2]
-          );
-          linkWorldPose.Rot().Set(
-              this->data->xquat[4*bodyId + 0],
-              this->data->xquat[4*bodyId + 1],
-              this->data->xquat[4*bodyId + 2],
-              this->data->xquat[4*bodyId + 3]
-          );
+          gz::math::Pose3d linkWorldPose = this->GetLinkWorldPose(bodyId);
 
           // Get the parent model's world pose
           auto parent = _ecm.Component<components::ParentEntity>(entity);
@@ -576,13 +569,7 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
     std::string bodyName = modelName + "::" + linkName;
     mjs_setName(linkBody->element, bodyName.c_str());
     
-    linkBody->pos[0] = relPose.Pos().X();
-    linkBody->pos[1] = relPose.Pos().Y();
-    linkBody->pos[2] = relPose.Pos().Z();
-    linkBody->quat[0] = relPose.Rot().W();
-    linkBody->quat[1] = relPose.Rot().X();
-    linkBody->quat[2] = relPose.Rot().Y();
-    linkBody->quat[3] = relPose.Rot().Z();
+    SetMujocoPose(linkBody, relPose);
 
     if (jointEntity == kNullEntity)
     {
@@ -659,13 +646,7 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
             std::string fullGeomName = bodyName + "::" + colName;
             mjs_setName(mjsg->element, fullGeomName.c_str());
             
-            mjsg->pos[0] = colPose.Pos().X();
-            mjsg->pos[1] = colPose.Pos().Y();
-            mjsg->pos[2] = colPose.Pos().Z();
-            mjsg->quat[0] = colPose.Rot().W();
-            mjsg->quat[1] = colPose.Rot().X();
-            mjsg->quat[2] = colPose.Rot().Y();
-            mjsg->quat[3] = colPose.Rot().Z();
+            SetMujocoPose(mjsg, colPose);
             
             if (geom.Type() == sdf::GeometryType::BOX)
             {
@@ -774,6 +755,27 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
     {
         this->AddBodyRecursive(_ecm, spec, linkBody, node.children[i], node.joints[i], nodes, linkPoseInModel, modelPose, modelIsStatic);
     }
+}
+
+
+gz::math::Pose3d MujocoPhysics::GetLinkWorldPose(int _bodyId) const
+{
+  gz::math::Pose3d pose;
+  if (_bodyId > 0 && _bodyId < this->model->nbody)
+  {
+    pose.Pos().Set(
+        this->data->xpos[3*_bodyId + 0],
+        this->data->xpos[3*_bodyId + 1],
+        this->data->xpos[3*_bodyId + 2]
+    );
+    pose.Rot().Set(
+        this->data->xquat[4*_bodyId + 0],
+        this->data->xquat[4*_bodyId + 1],
+        this->data->xquat[4*_bodyId + 2],
+        this->data->xquat[4*_bodyId + 3]
+    );
+  }
+  return pose;
 }
 
 GZ_ADD_PLUGIN(MujocoPhysics, System, MujocoPhysics::ISystemConfigure,
