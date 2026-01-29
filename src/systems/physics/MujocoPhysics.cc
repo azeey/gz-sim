@@ -150,6 +150,10 @@ class MujocoPhysics : public System,
   private: gz::math::Pose3d GetLinkWorldPose(int _bodyId) const;
 
 
+  // Caches
+  private: std::unordered_map<Entity, Entity> modelToCanonicalLink;
+
+
   // Mujoco State
   private: mjSpec *spec = nullptr;
   private: mjModel *model = nullptr;
@@ -269,12 +273,12 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
   _ecm.Each<components::Model, components::Pose>(
     [&](const Entity &modelEntity, const components::Model *, components::Pose *modelPoseComp)
     {
-      auto canonicalLinks = _ecm.ChildrenByComponents(modelEntity, components::CanonicalLink());
-      if (canonicalLinks.empty())
+      auto it = this->modelToCanonicalLink.find(modelEntity);
+      if (it == this->modelToCanonicalLink.end())
       {
         return true;
       }
-      Entity linkEntity = canonicalLinks[0];
+      Entity linkEntity = it->second;
       auto bodyIdComp = _ecm.Component<components::MujocoBodyId>(linkEntity);
       if (!bodyIdComp)
       {
@@ -419,6 +423,18 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
     gzdbg << "Saved MJCF model to " << mjcf_path << std::endl;
   }
   mj_forward(this->model, this->data);
+
+  // Cache canonical links
+  this->modelToCanonicalLink.clear();
+  _ecm.Each<components::Model>([&](const Entity &modelEntity, const components::Model *)
+  {
+    auto canonicalLinks = _ecm.ChildrenByComponents(modelEntity, components::CanonicalLink());
+    if (!canonicalLinks.empty())
+    {
+      this->modelToCanonicalLink[modelEntity] = canonicalLinks[0];
+    }
+    return true;
+  });
 
   // Map Entities & Restore State
   std::unordered_map<std::string, Entity> bodyMap;
