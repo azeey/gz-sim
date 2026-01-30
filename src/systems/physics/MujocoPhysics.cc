@@ -383,6 +383,7 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
   }
   // Default step size will be updated in Update()
   this->spec->option.timestep = 0.001;
+  this->spec->option.enableflags |= mjENBL_SLEEP;
 
   mjsBody *worldbody = mjs_findBody(this->spec, "world");
   if (!worldbody)

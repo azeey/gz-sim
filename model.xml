@@ -1,7 +1,9 @@
 <mujoco model="MuJoCo Model">
   <compiler angle="radian"/>
 
-  <option timestep="0.001" gravity="0 0 -9.8"/>
+  <option timestep="0.001" gravity="0 0 -9.8">
+    <flag sleep="enable"/>
+  </option>
 
   <worldbody>
     <body name="ground_plane::link">

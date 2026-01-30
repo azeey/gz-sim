@@ -1415,6 +1415,7 @@ void SimulationRunner::ProcessRecreateEntitiesRemove()
 {
   GZ_PROFILE("SimulationRunner::ProcessRecreateEntitiesRemove");
 
+  // this->entityCompMgr.
   // store the original entities to recreate and put in request to remove them
   this->entityCompMgr.EachNoCache<components::Model,
                            components::Recreate>(
