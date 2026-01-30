@@ -30,6 +30,7 @@
 
 #include <gz/common/Console.hh>
 #include <gz/common/MeshManager.hh>
+#include <gz/common/Profiler.hh>
 #include <gz/common/SystemPaths.hh>
 #include <gz/common/Mesh.hh>
 #include <gz/common/Util.hh>
@@ -205,15 +206,17 @@ bool MujocoPhysics::NeedsRebuild(const EntityComponentManager &_ecm)
 void MujocoPhysics::Update(const UpdateInfo &_info,
                            EntityComponentManager &_ecm)
 {
+  GZ_PROFILE("MujocoPhysics::Update");
   if (this->NeedsRebuild(_ecm))
   {
+    GZ_PROFILE("Rebuild");
     this->RebuildModel(_ecm);
   }
 
   if (!this->model || !this->data)
     return;
 
-  auto start_time = std::chrono::steady_clock::now();
+  // auto start_time = std::chrono::steady_clock::now();
 
   // Sync ECM -> Mujoco (Forces)
   _ecm.Each<components::Joint, components::JointForceCmd, components::MujocoJointId>(
@@ -229,18 +232,21 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
         return true;
     });
 
-  auto ecm_to_mj_done_time = std::chrono::steady_clock::now();
+  // auto ecm_to_mj_done_time = std::chrono::steady_clock::now();
 
   // Step
   if (!_info.paused)
   {
+    GZ_PROFILE("Step");
+    this->model->opt.timestep = std::chrono::duration<double>(_info.dt).count();
     mj_step(this->model, this->data);
   }
 
-  auto mj_step_done_time = std::chrono::steady_clock::now();
+  // auto mj_step_done_time = std::chrono::steady_clock::now();
 
   // Sync Mujoco -> ECM
   
+  GZ_PROFILE_BEGIN("Joint PV");
   // 1. Joint Positions & Velocities
   _ecm.Each<components::Joint, components::MujocoJointId>(
     [&](const Entity &entity, const components::Joint *, const components::MujocoJointId *jntIdComp)
@@ -280,7 +286,9 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
         }
         return true;
     });
+  GZ_PROFILE_END();
 
+  GZ_PROFILE_BEGIN("Link P");
   // 2. Link Poses
   _ecm.Each<components::Model, components::Pose, components::CanonicalLinkInfo>(
     [&](const Entity &modelEntity, components::Model *, components::Pose *modelPoseComp,
@@ -308,7 +316,9 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
       }
       return true;
     });
+  GZ_PROFILE_END();
 
+  GZ_PROFILE_BEGIN("Model P");
   _ecm.Each<components::NonCanonicalLink, components::Link, components::MujocoBodyId, components::Pose, components::ParentEntity>(
     [&](const Entity &entity, const components::NonCanonicalLink *, const components::Link *,
         const components::MujocoBodyId *bodyIdComp,
@@ -334,17 +344,18 @@ void MujocoPhysics::Update(const UpdateInfo &_info,
         }
         return true;
     });
+  GZ_PROFILE_END();
 
-  auto mj_to_ecm_done_time = std::chrono::steady_clock::now();
-
-  auto ecm_to_mj_dur = std::chrono::duration_cast<std::chrono::microseconds>(ecm_to_mj_done_time - start_time);
-  auto mj_step_dur = std::chrono::duration_cast<std::chrono::microseconds>(mj_step_done_time - ecm_to_mj_done_time);
-  auto mj_to_ecm_dur = std::chrono::duration_cast<std::chrono::microseconds>(mj_to_ecm_done_time - mj_step_done_time);
-
-  gzdbg << "MujocoPhysics::Update timings:"
-        << " ECM->MJ: " << ecm_to_mj_dur.count() << " us |"
-        << " mj_step: " << mj_step_dur.count() << " us |"
-        << " MJ->ECM: " << mj_to_ecm_dur.count() << " us" << std::endl;
+  // auto mj_to_ecm_done_time = std::chrono::steady_clock::now();
+  //
+  // auto ecm_to_mj_dur = std::chrono::duration_cast<std::chrono::microseconds>(ecm_to_mj_done_time - start_time);
+  // auto mj_step_dur = std::chrono::duration_cast<std::chrono::microseconds>(mj_step_done_time - ecm_to_mj_done_time);
+  // auto mj_to_ecm_dur = std::chrono::duration_cast<std::chrono::microseconds>(mj_to_ecm_done_time - mj_step_done_time);
+  //
+  // gzdbg << "MujocoPhysics::Update timings:"
+  //       << " ECM->MJ: " << ecm_to_mj_dur.count() << " us |"
+  //       << " mj_step: " << mj_step_dur.count() << " us |"
+  //       << " MJ->ECM: " << mj_to_ecm_dur.count() << " us" << std::endl;
 }
 
 void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
@@ -370,6 +381,8 @@ void MujocoPhysics::RebuildModel(EntityComponentManager &_ecm)
           this->spec->option.gravity[2] = gravityComp->Data().Z();
       }
   }
+  // Default step size will be updated in Update()
+  this->spec->option.timestep = 0.001;
 
   mjsBody *worldbody = mjs_findBody(this->spec, "world");
   if (!worldbody)
@@ -660,7 +673,7 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
     }
 
     auto inertialComp = _ecm.Component<components::Inertial>(linkEntity);
-    if (inertialComp && !modelIsStatic)
+    if (inertialComp)
     {
         const auto &inertial = inertialComp->Data();
         linkBody->mass = inertial.MassMatrix().Mass();
@@ -671,17 +684,25 @@ void MujocoPhysics::AddBodyRecursive(const EntityComponentManager &_ecm,
         linkBody->iquat[1] = inertial.Pose().Rot().X();
         linkBody->iquat[2] = inertial.Pose().Rot().Y();
         linkBody->iquat[3] = inertial.Pose().Rot().Z();
-        linkBody->inertia[0] = inertial.MassMatrix().Ixx();
-        linkBody->inertia[1] = inertial.MassMatrix().Iyy();
-        linkBody->inertia[2] = inertial.MassMatrix().Izz();
+        const math::Matrix3d &moi = inertial.Moi();
+        // linkBody->inertia[0] = inertial.MassMatrix().Ixx();
+        // linkBody->inertia[1] = inertial.MassMatrix().Iyy();
+        // linkBody->inertia[2] = inertial.MassMatrix().Izz();
+        linkBody->fullinertia[0] = moi(0, 0);
+        linkBody->fullinertia[1] = moi(1, 1);
+        linkBody->fullinertia[2] = moi(2, 2);
+        linkBody->fullinertia[3] = moi(0, 1);
+        linkBody->fullinertia[4] = moi(0, 2);
+        linkBody->fullinertia[5] = moi(1, 2);
+        linkBody->explicitinertial = true;
     }
-    else
-    {
-      // For static models, or dynamic models without an <inertial> tag,
-      // let mass be the default (0). Mujoco treats bodies with 0 mass as
-      // being fixed to the world.
-      linkBody->mass = 0;
-    }
+    // else
+    // {
+    //   // For static models, or dynamic models without an <inertial> tag,
+    //   // let mass be the default (0). Mujoco treats bodies with 0 mass as
+    //   // being fixed to the world.
+    //   linkBody->mass = 0;
+    // }
 
     auto collisions = _ecm.ChildrenByComponents(linkEntity, components::Collision());
     for (const auto &colEntity : collisions)
