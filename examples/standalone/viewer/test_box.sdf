@@ -1,0 +1,200 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="default">
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 -0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name='enclosure'>
+      <link name='enclosure_link'>
+        <visual name='enclosure_visual'>
+          <geometry>
+            <mesh>
+              <uri>file:///Users/addisuzt/ws_aic/install/share/aic_assets/models/Enclosure/enclosure_visual.glb</uri>
+            </mesh>
+          </geometry>
+        </visual>
+        <visual name='light_visual'>
+          <geometry>
+            <mesh>
+              <uri>file:///Users/addisuzt/ws_aic/install/share/aic_assets/models/Enclosure/light_visual.glb</uri>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name='v1015026001_collider_box'>
+          <pose>-0.010998000000000001 0.0092829999999999996 0.56970600000000005 1.5707966535897933 3.4641020661940041e-07 -3.1415926535897931</pose>
+          <geometry>
+            <box>
+              <size>1.5 1.138984 1.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <collision name='v1015028001_collider_box'>
+          <pose>0.71360199999999996 0.73388299999999995 1.3291980000000001 0 0 -3.1415923071795868</pose>
+          <geometry>
+            <box>
+              <size>0.050799999999999998 0.050799999999999998 2.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <collision name='v1015013001_collider_box'>
+          <pose>-0.010998000000000001 0.0092829999999999996 2.5487989999999998 0 -1.5707959999869179 0</pose>
+          <geometry>
+            <box>
+              <size>0.0608 1.5 1.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <collision name='v1015027_collider_box'>
+          <pose>-0.73559799999999997 0.73388299999999995 1.3291980000000001 0 0 -3.1415923071795868</pose>
+          <geometry>
+            <box>
+              <size>0.050799999999999998 0.050799999999999998 2.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <collision name='v1015029_collider_box'>
+          <pose>-0.73559799999999997 -0.71531699999999998 1.3291980000000001 3.1415923071795868 -5.1360290062644064e-30 -3.1415923071795868</pose>
+          <geometry>
+            <box>
+              <size>0.050799999999999998 0.050799999999999998 2.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <collision name='v1015030_collider_box'>
+          <pose>0.71360199999999996 -0.71531699999999998 1.3291980000000001 0 0 -3.1415923071795868</pose>
+          <geometry>
+            <box>
+              <size>0.050799999999999998 0.050799999999999998 2.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <pose>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name='enclosure walls'>
+      <link name='enclosure_walls_link'>
+        <collision name='v1015062006_collider_box'>
+          <pose>-0.010998000000000001 0.73428400000000005 1.8287979999999999 1.5707959999999999 1.4258722491628009e-27 -1.5707959999999999</pose>
+          <geometry>
+            <box>
+              <size>0.050000999999999997 1.3592 1.3784000000000001</size>
+            </box>
+          </geometry>
+        </collision>
+        <collision name='v1015062005_collider_box'>
+          <pose>-0.73599800000000004 0.0092829999999999996 1.8287979999999999 1.5707959999999999 1.4258722491628009e-27 -1.5707959999999999</pose>
+          <geometry>
+            <box>
+              <size>1.3784000000000001 1.3592 0.050000000000000003</size>
+            </box>
+          </geometry>
+        </collision>
+        <collision name='v1015062007_collider_box'>
+          <pose>-0.010998000000000001 -0.71571700000000005 1.833799 1.5707959999999999 1.4258722491628009e-27 -1.5707959999999999</pose>
+          <geometry>
+            <box>
+              <size>0.050000000000000003 1.3692 1.3784000000000001</size>
+            </box>
+          </geometry>
+        </collision>
+        <collision name='v1015062008_collider_box'>
+          <pose>0.71400200000000003 0.0092829999999999996 1.833798 1.5707959999999999 1.4258722491628009e-27 -1.5707959999999999</pose>
+          <geometry>
+            <box>
+              <size>1.3784000000000001 1.3692 0.050000000000000003</size>
+            </box>
+          </geometry>
+        </collision>
+        <pose>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name='floor'>
+      <link name='floor_link'>
+        <visual name='floor_visual'>
+          <geometry>
+            <mesh>
+              <uri>file:///Users/addisuzt/ws_aic/install/share/aic_assets/models/Floor/floor_visual.glb</uri>
+            </mesh>
+          </geometry>
+        </visual>
+        <visual name='walls_visual'>
+          <geometry>
+            <mesh>
+              <uri>file:///Users/addisuzt/ws_aic/install/share/aic_assets/models/Floor/walls_visual.glb</uri>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name='floor_cylinder'>
+          <geometry>
+            <plane>
+              <size>10 10</size>
+              <normal>0 0 1</normal>
+            </plane>
+          </geometry>
+        </collision>
+        <pose>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+  </world>
+</sdf>

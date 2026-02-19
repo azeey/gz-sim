@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <iostream>
 #include <mutex>
 #include <thread>
@@ -15,6 +16,8 @@
 #include <gz/common/StringUtils.hh>
 #include <gz/common/SystemPaths.hh>
 
+#include <gz/fuel_tools/Interface.hh>
+
 #include <gz/gui/Application.hh>
 #include <gz/gui/GuiEvents.hh>
 #include <gz/gui/MainWindow.hh>
@@ -28,6 +31,7 @@
 #include <gz/sim/EventManager.hh>
 #include "gz/sim/InstallationDirectories.hh"
 #include <gz/sim/SdfEntityCreator.hh>
+#include <gz/sim/Util.hh>
 #include <gz/sim/rendering/RenderUtil.hh>
 #include <gz/sim/components/Name.hh>
 #include <gz/sim/components/World.hh>
@@ -47,9 +51,10 @@ class SdfViewer : public QObject
   public: explicit SdfViewer(const std::string &_path)
     : sdfPath(_path)
   {
+    this->ecm = std::make_unique<EntityComponentManager>();
     this->renderUtil = std::make_unique<RenderUtil>();
     this->eventMgr = std::make_unique<EventManager>();
-    this->entityCreator = std::make_unique<SdfEntityCreator>(this->ecm, *this->eventMgr);
+    this->entityCreator = std::make_unique<SdfEntityCreator>(*this->ecm, *this->eventMgr);
 
     // Setup file watcher
     this->lastWriteTime = std::filesystem::last_write_time(this->sdfPath);
@@ -103,7 +108,7 @@ class SdfViewer : public QObject
          // UpdateInfo info;
          // info.simTime = std::chrono::steady_clock::duration::zero();
          // info.dt = std::chrono::steady_clock::duration::zero();
-         // this->renderUtil->UpdateFromECM(info, this->ecm);
+         // this->renderUtil->UpdateFromECM(info, *this->ecm);
          this->renderUtil->Update();
       }
     }
@@ -117,6 +122,8 @@ class SdfViewer : public QObject
     {
       return;
     }
+    scene->DestroyLights();
+    scene->DestroyVisuals();
 
     this->renderUtil->SetScene(scene);
     this->renderUtil->Init();
@@ -130,19 +137,17 @@ class SdfViewer : public QObject
 
     gzmsg << "Reloading SDF: " << this->sdfPath << std::endl;
 
-    // Remove all entities from ECM.
-    this->ecm.Each<components::Name>([&](const Entity &_entity, const components::Name *)->bool{
-      this->ecm.RequestRemoveEntity(_entity, true);
-      return true;
-    });
-    
-    // Process the removal in RenderUtil
-    UpdateInfo info;
-    this->renderUtil->UpdateFromECM(info, this->ecm);
-    
-    this->ecm.ProcessRemoveEntityRequests();
+    this->renderUtil = std::make_unique<RenderUtil>();
+    this->Initialize();
 
-    // Now load the new SDF
+    this->ecm->RequestRemoveEntities();
+    this->ecm->ProcessRemoveEntityRequests();
+
+    UpdateInfo info;
+    // this->renderUtil->UpdateFromECM(info, *this->ecm);
+
+
+    // 3. Load the new SDF
     sdf::Root root;
     sdf::Errors errors = root.Load(this->sdfPath);
     if (!errors.empty())
@@ -152,7 +157,7 @@ class SdfViewer : public QObject
       return;
     }
 
-    // Create entities
+    // 4. Create entities in the new ECM
     if (root.WorldCount() > 0)
     {
       for (uint64_t i = 0; i < root.WorldCount(); ++i)
@@ -166,26 +171,15 @@ class SdfViewer : public QObject
     {
       this->entityCreator->CreateEntities(root.Model());
     }
-    
-    gzmsg << "Created entities. Total entities: " << this->ecm.EntityCount() << std::endl;
-    
-    // Check new entities
-    int newCount = 0;
-    this->ecm.EachNew<components::Name>([&](const Entity &, const components::Name *){
-      newCount++;
-      return true;
-    });
-    gzmsg << "New entities count: " << newCount << std::endl;
 
-    // Create visuals for the new entities
-    this->renderUtil->UpdateFromECM(info, this->ecm);
-    this->renderUtil->Update();
+    gzmsg << "Created entities. Total entities: " << this->ecm->EntityCount() << std::endl;
     
-    gzmsg << "Visual count in scene: " << this->renderUtil->Scene()->VisualCount() << std::endl;
+    // 5. Update RenderUtil with the new entities
+    this->renderUtil->UpdateFromECM(info, *this->ecm);
   }
 
   private: std::string sdfPath;
-  private: EntityComponentManager ecm;
+  private: std::unique_ptr<EntityComponentManager> ecm;
   private: std::unique_ptr<EventManager> eventMgr;
   private: std::unique_ptr<SdfEntityCreator> entityCreator;
   private: std::unique_ptr<RenderUtil> renderUtil;
@@ -221,6 +215,23 @@ int main(int argc, char **argv)
     std::cerr << "File not found: " << file_path << std::endl;
     return 1;
   }
+  gz::common::SystemPaths systemPaths;
+
+  // Worlds from environment variable
+  systemPaths.SetFilePathEnv(gz::sim::kResourcePathEnv);
+
+  // Configure SDF to fetch assets from Gazebo Fuel.
+  sdf::setFindCallback([] (const std::string & _uri)
+  {
+    return fuel_tools::fetchResource(_uri);
+  });
+
+  common::addFindFileURICallback([] (common::URI _uri)
+  {
+    return fuel_tools::fetchResource(_uri.Str());
+  });
+
+  gz::sim::addResourcePaths();
 
   gz::common::Console::SetVerbosity(4);
 
