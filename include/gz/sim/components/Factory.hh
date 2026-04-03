@@ -37,13 +37,20 @@
 #include <gz/utils/NeverDestroyed.hh>
 
 
+/// \brief Helper macros for Python registration. We cannot use naked #ifdef
+/// checks inside the main GZ_SIM_REGISTER_COMPONENT macro because standard C++
+/// does not allow nested preprocessor directives inside macro expansions.
+/// These expand to function calls when HAVE_PYBIND11 is true, and disappear
+/// when false, allowing clean C++-only builds.
 #ifdef HAVE_PYBIND11
   #include <gz/sim/detail/ComponentPybindRegistry.hh>
-  #define GZ_SIM_REGISTER_COMPONENT_PYBIND(_classname) \
-    [[maybe_unused]] static gz::sim::python::AddPybindGetterSetter<_classname> \
-        GzSimPybindComponentInitializer##_classname;
+  #define GZ_SIM_REGISTER_COMPONENT_PYBIND_ONLOAD(_classname, _id) \
+    gz::sim::python::AddPybindGetterSetter<_classname>::Register(_id);
+  #define GZ_SIM_UNREGISTER_COMPONENT_PYBIND_ONLOAD(_classname, _id) \
+    gz::sim::python::AddPybindGetterSetter<_classname>::Unregister(_id);
 #else
-  #define GZ_SIM_REGISTER_COMPONENT_PYBIND(_classname)
+  #define GZ_SIM_REGISTER_COMPONENT_PYBIND_ONLOAD(_classname, _id)
+  #define GZ_SIM_UNREGISTER_COMPONENT_PYBIND_ONLOAD(_classname, _id)
 #endif
 
 namespace gz
@@ -433,6 +440,7 @@ namespace components
       using Desc = sim::components::ComponentDescriptor<_classname>; \
       sim::components::Factory::Instance()->Register<_classname>(\
         _compType, new Desc(), sim::components::RegistrationObjectId(this));\
+      GZ_SIM_REGISTER_COMPONENT_PYBIND_ONLOAD(_classname, reinterpret_cast<uintptr_t>(this)) \
     } \
     public: GzSimComponents##_classname( \
                 const GzSimComponents##_classname&) = delete; \
@@ -441,13 +449,13 @@ namespace components
     public: ~GzSimComponents##_classname() \
     { \
       using namespace gz; \
+      GZ_SIM_UNREGISTER_COMPONENT_PYBIND_ONLOAD(_classname, reinterpret_cast<uintptr_t>(this)) \
       sim::components::Factory::Instance()->Unregister<_classname>( \
           sim::components::RegistrationObjectId(this)); \
     } \
   }; \
   static GzSimComponents##_classname\
-    GzSimComponentsInitializer##_classname; \
-  GZ_SIM_REGISTER_COMPONENT_PYBIND(_classname)
+    GzSimComponentsInitializer##_classname;
 }
 }
 }
