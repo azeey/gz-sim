@@ -35,6 +35,8 @@ namespace gz
 {
 namespace sim
 {
+namespace python { class ECMPythonAccessor; }
+
 // Inline bracket to help doxygen filtering.
 inline namespace GZ_SIM_VERSION_NAMESPACE {
 namespace detail
@@ -47,6 +49,8 @@ namespace detail
 /// gz::sim::detail) directly.
 class GZ_SIM_VISIBLE View : public BaseView
 {
+  friend class python::ECMPythonAccessor;
+
   /// \brief Alias for containers that hold and entity and its component data.
   /// The component types held in this container match the component types that
   /// were specified when creating the view.
