@@ -261,18 +261,6 @@ void VisualizeLidar::Update(const UpdateInfo &,
     this->dataPtr->topicName = "";
     return;
   }
-
-  // Only update lidarPose if the lidarEntity exists and the lidar is
-  // initialized and the sensor message is yet to arrive.
-  //
-  // If we update the worldpose on the physics thread **after** the sensor
-  // data arrives, the visual is offset from the obstacle if the sensor is
-  // moving fast.
-  if (!this->dataPtr->lidarEntityDirty && this->dataPtr->initialized &&
-      !this->dataPtr->visualDirty)
-  {
-    this->dataPtr->lidarPose = worldPose(this->dataPtr->lidarEntity, _ecm);
-  }
 }
 
 //////////////////////////////////////////////////
@@ -414,6 +402,11 @@ void VisualizeLidar::OnScan(const msgs::LaserScan &_msg)
   std::lock_guard<std::mutex> lock(this->dataPtr->serviceMutex);
   if (this->dataPtr->initialized)
   {
+    if (_msg.has_world_pose())
+    {
+      this->dataPtr->lidarPose = msgs::Convert(_msg.world_pose());
+    }
+
     this->dataPtr->lidar->SetVerticalRayCount(_msg.vertical_count());
     this->dataPtr->lidar->SetHorizontalRayCount(_msg.count());
     this->dataPtr->lidar->SetMinHorizontalAngle(_msg.angle_min());
