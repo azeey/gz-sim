@@ -340,8 +340,8 @@ void DetachableJoint::PreUpdate(
       this->attachRequested = false;
       this->isAttached = true;
       this->PublishJointState(this->isAttached);
-      gzdbg << "Attaching entity: " << this->detachableJointEntity
-              << std::endl;
+      gzdbg << "Attaching joint: " << this->detachableJointEntity
+              << " on parent: " << this->parentLinkEntity << " and child: " << this->childLinkEntity << std::endl;
     }
     else if (!this->suppressChildWarning)
     {

@@ -21,13 +21,46 @@
 #include <gz/sim/components/Factory.hh>
 #include <gz/sim/components/Component.hh>
 #include <gz/sim/config.hh>
+#include <gz/msgs/pose.pb.h>
+#include <gz/msgs/convert/Pose.hh>
 
 namespace gz
 {
 namespace sim
 {
+
 // Inline bracket to help doxygen filtering.
 inline namespace GZ_SIM_VERSION_NAMESPACE {
+
+namespace serializers
+{
+
+template <>
+class DefaultSerializer<math::Pose3d>
+{
+  public:
+  static std::ostream &Serialize(std::ostream &_out, const math::Pose3d &_pose)
+  {
+    msgs::Pose poseMsg = msgs::Convert(_pose);
+    bool rc = poseMsg.SerializeToOstream(&_out);
+    (void) rc;
+    return _out;
+  }
+
+  public:
+  static std::istream &Deserialize(std::istream &_in, math::Pose3d &_pose)
+  {
+    msgs::Pose poseMsg;
+    bool rc = poseMsg.ParseFromIstream(&_in);
+    if (rc)
+    {
+      msgs::Set(&_pose, poseMsg);
+    }
+    return _in;
+  }
+};
+}
+
 namespace components
 {
   /// \brief A component type that contains pose, gz::math::Pose3d,

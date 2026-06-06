@@ -2135,6 +2135,7 @@ void PhysicsPrivate::RemovePhysicsEntities(const EntityComponentManager &_ecm)
 
         gzdbg << "Detaching joint [" << _entity << "]" << std::endl;
         castEntity->Detach();
+        this->entityJointMap.Remove(_entity); 
         return true;
       });
 
@@ -3341,12 +3342,20 @@ void PhysicsPrivate::UpdateModelPose(const Entity _model,
   _ecm.SetChanged(_model, components::Pose::typeId,
                   ComponentState::PeriodicChange);
 
+  // static int iter = 0;
   // once the model pose has been updated, all descendant link poses of this
   // model must be updated (whether the link actually changed pose or not)
   // since link poses are saved w.r.t. their parent model
   auto model = sim::Model(_model);
+  // if (model.Name(_ecm) == "probe_red")
+  //   gzdbg << iter++ << ": "<< modelPose->Data() << "\n";
   for (const auto &childLink : model.Links(_ecm))
   {
+    // if (model.Name(_ecm) == "probe_red")
+    // {
+    //   auto linkPose = _ecm.ComponentData<components::Pose>(childLink);
+    //   gzdbg << "L: " << childLink << " P: " << *linkPose << "\n";
+    // }
     // skip links that are already marked as a link to be updated
     if (_linkFrameData.find(childLink) != _linkFrameData.end())
       continue;
