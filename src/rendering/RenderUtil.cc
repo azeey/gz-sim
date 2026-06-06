@@ -1198,26 +1198,41 @@ void RenderUtil::Update()
       std::string type = fogElem->Get<std::string>("type");
       if (type != "none")
       {
-        auto fogExt = std::dynamic_pointer_cast<gz::rendering::Fog>(
-            this->dataPtr->scene->Extension()->CreateExt("fog"));
-
-        if (fogExt)
+        if (this->dataPtr->scene->Extension())
         {
-          this->dataPtr->fog = fogExt;
+          auto fogExt = std::dynamic_pointer_cast<gz::rendering::Fog>(
+              this->dataPtr->scene->Extension()->CreateExt("fog"));
 
-          gz::rendering::FogMode mode = gz::rendering::FogMode::FOG_NONE;
-          if (type == "linear")
-            mode = gz::rendering::FogMode::FOG_LINEAR;
-          else if (type == "exp")
-            mode = gz::rendering::FogMode::FOG_EXP;
-          else if (type == "exp2")
-            mode = gz::rendering::FogMode::FOG_EXP2;
+          if (fogExt)
+          {
+            gzdbg << "Configuring scene-wide fog: type=" << type
+                  << ", color=" << fogElem->Get<math::Color>("color")
+                  << ", start=" << fogElem->Get<double>("start")
+                  << ", end=" << fogElem->Get<double>("end") << std::endl;
+            this->dataPtr->fog = fogExt;
 
-          fogExt->SetMode(mode);
-          fogExt->SetColor(fogElem->Get<math::Color>("color"));
-          fogExt->SetDensity(fogElem->Get<double>("density"));
-          fogExt->SetStart(fogElem->Get<double>("start"));
-          fogExt->SetEnd(fogElem->Get<double>("end"));
+            gz::rendering::FogMode mode = gz::rendering::FogMode::FOG_NONE;
+            if (type == "linear")
+              mode = gz::rendering::FogMode::FOG_LINEAR;
+            else if (type == "exp" || type == "exponential")
+              mode = gz::rendering::FogMode::FOG_EXP;
+            else if (type == "exp2" || type == "exponential2" || type == "quadratic")
+              mode = gz::rendering::FogMode::FOG_EXP2;
+
+            fogExt->SetMode(mode);
+            fogExt->SetColor(fogElem->Get<math::Color>("color"));
+            fogExt->SetDensity(fogElem->Get<double>("density"));
+            fogExt->SetStart(fogElem->Get<double>("start"));
+            fogExt->SetEnd(fogElem->Get<double>("end"));
+          }
+          else
+          {
+            gzwarn << "Failed to create Fog extension object." << std::endl;
+          }
+        }
+        else
+        {
+          gzwarn << "Scene Extension interface is null. Cannot create fog." << std::endl;
         }
       }
       else if (this->dataPtr->fog)

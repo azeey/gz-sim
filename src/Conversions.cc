@@ -47,6 +47,8 @@
 
 #include <gz/common/Console.hh>
 
+#include <sdf/Element.hh>
+#include <sdf/parser.hh>
 #include <sdf/Actor.hh>
 #include <sdf/Atmosphere.hh>
 #include <sdf/AirPressure.hh>
@@ -859,6 +861,29 @@ msgs::Scene gz::sim::convert(const sdf::Scene &_in)
         _in.Sky()->CloudAmbient());
   }
 
+  // Parse and serialize fog manually since sdf::Scene lacks C++ DOM bindings for it
+  auto sceneElem = _in.Element();
+  if (sceneElem && sceneElem->HasElement("fog"))
+  {
+    auto fogElem = sceneElem->GetElement("fog");
+    msgs::Fog *fogMsg = out.mutable_fog();
+
+    std::string type = fogElem->Get<std::string>("type");
+    if (type == "linear")
+      fogMsg->set_type(msgs::Fog::LINEAR);
+    else if (type == "exp" || type == "exponential")
+      fogMsg->set_type(msgs::Fog::EXPONENTIAL);
+    else if (type == "exp2" || type == "exponential2" || type == "quadratic")
+      fogMsg->set_type(msgs::Fog::EXPONENTIAL2);
+    else
+      fogMsg->set_type(msgs::Fog::NONE);
+
+    msgs::Set(fogMsg->mutable_color(), fogElem->Get<gz::math::Color>("color"));
+    fogMsg->set_density(fogElem->Get<float>("density"));
+    fogMsg->set_start(fogElem->Get<float>("start"));
+    fogMsg->set_end(fogElem->Get<float>("end"));
+  }
+
   return out;
 }
 
@@ -870,11 +895,36 @@ sdf::Scene gz::sim::convert(const msgs::Scene &_in)
   sdf::Scene out;
   // todo(anyone) add SetName to sdf::Scene?
   // out.SetName(_in.name());
-  out.SetAmbient(msgs::Convert(_in.ambient()));
-  out.SetBackground(msgs::Convert(_in.background()));
-  out.SetShadows(_in.shadows());
-  out.SetGrid(_in.grid());
-  out.SetOriginVisual(_in.origin_visual());
+
+  sdf::ElementPtr sceneElem(new sdf::Element);
+  sdf::initFile("scene.sdf", sceneElem);
+
+  sceneElem->GetElement("ambient")->Set(msgs::Convert(_in.ambient()));
+  sceneElem->GetElement("background")->Set(msgs::Convert(_in.background()));
+  sceneElem->GetElement("shadows")->Set(_in.shadows());
+  sceneElem->GetElement("grid")->Set(_in.grid());
+  sceneElem->GetElement("origin_visual")->Set(_in.origin_visual());
+
+  if (_in.has_fog())
+  {
+    sdf::ElementPtr fogElem = sceneElem->GetElement("fog");
+
+    std::string type = "none";
+    if (_in.fog().type() == msgs::Fog::LINEAR)
+      type = "linear";
+    else if (_in.fog().type() == msgs::Fog::EXPONENTIAL)
+      type = "exponential";
+    else if (_in.fog().type() == msgs::Fog::EXPONENTIAL2)
+      type = "quadratic";
+
+    fogElem->GetElement("type")->Set(type);
+    fogElem->GetElement("color")->Set(msgs::Convert(_in.fog().color()));
+    fogElem->GetElement("density")->Set(_in.fog().density());
+    fogElem->GetElement("start")->Set(_in.fog().start());
+    fogElem->GetElement("end")->Set(_in.fog().end());
+  }
+
+  out.Load(sceneElem);
 
   if (_in.has_sky())
   {
