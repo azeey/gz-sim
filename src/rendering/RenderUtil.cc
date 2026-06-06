@@ -51,6 +51,7 @@
 #include <gz/rendering/RenderEngine.hh>
 #include <gz/rendering/RenderingIface.hh>
 #include <gz/rendering/Scene.hh>
+#include <gz/rendering/Fog.hh>
 #include <gz/rendering/ThermalCamera.hh>
 #include <gz/rendering/WireBox.hh>
 
@@ -390,6 +391,9 @@ class gz::sim::RenderUtilPrivate
 
   /// \brief A set containing all the entities with attached rendering sensors
   public: std::unordered_set<Entity> sensorEntities;
+
+  /// \brief Pointer to the scene-wide fog object.
+  public: gz::rendering::FogPtr fog;
 
   /// \brief Callback function for creating sensors.
   /// The function args are: entity id, sensor sdf, and parent name.
@@ -1185,6 +1189,42 @@ void RenderUtil::Update()
     if (scene.Sky())
     {
       this->dataPtr->scene->SetSkyEnabled(true);
+    }
+
+    sdf::ElementPtr sceneElem = scene.Element();
+    if (sceneElem && sceneElem->HasElement("fog"))
+    {
+      sdf::ElementPtr fogElem = sceneElem->FindElement("fog");
+      std::string type = fogElem->Get<std::string>("type");
+      if (type != "none")
+      {
+        auto fogExt = std::dynamic_pointer_cast<gz::rendering::Fog>(
+            this->dataPtr->scene->Extension()->CreateExt("fog"));
+
+        if (fogExt)
+        {
+          this->dataPtr->fog = fogExt;
+
+          gz::rendering::FogMode mode = gz::rendering::FogMode::FOG_NONE;
+          if (type == "linear")
+            mode = gz::rendering::FogMode::FOG_LINEAR;
+          else if (type == "exp")
+            mode = gz::rendering::FogMode::FOG_EXP;
+          else if (type == "exp2")
+            mode = gz::rendering::FogMode::FOG_EXP2;
+
+          fogExt->SetMode(mode);
+          fogExt->SetColor(fogElem->Get<math::Color>("color"));
+          fogExt->SetDensity(fogElem->Get<double>("density"));
+          fogExt->SetStart(fogElem->Get<double>("start"));
+          fogExt->SetEnd(fogElem->Get<double>("end"));
+        }
+      }
+      else if (this->dataPtr->fog)
+      {
+        this->dataPtr->fog->SetMode(gz::rendering::FogMode::FOG_NONE);
+        this->dataPtr->fog = nullptr;
+      }
     }
 
     // only one scene so break
