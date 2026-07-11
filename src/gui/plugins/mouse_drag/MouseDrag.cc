@@ -358,6 +358,10 @@ void MouseDrag::Update(const UpdateInfo &_info,
         return true;
       });
 
+    // Server may not be ready if we don't have a world entity yet.
+    if (worldEntity == kNullEntity)
+      return;
+
     // Check if already loaded
     const auto msg =
       _ecm.ComponentData<components::SystemPluginInfo>(worldEntity);
