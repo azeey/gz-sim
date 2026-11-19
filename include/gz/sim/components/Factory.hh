@@ -34,6 +34,11 @@
 #include <gz/sim/Export.hh>
 #include <gz/sim/Types.hh>
 #include <gz/utils/NeverDestroyed.hh>
+#include <gz/utils/SuppressWarning.hh>
+
+GZ_UTILS_WARN_IGNORE__SWITCH_NO_DEFAULT_STATEMENT
+#include <gz/sim/detail/vendor/entt/entity/registry.hpp>
+GZ_UTILS_WARN_RESUME__SWITCH_NO_DEFAULT_STATEMENT
 
 namespace gz
 {
@@ -43,6 +48,8 @@ namespace sim
 inline namespace GZ_SIM_VERSION_NAMESPACE {
 namespace components
 {
+  using StorageType = entt::basic_registry<Entity>::common_type;
+
   /// \brief A base class for an object responsible for creating components.
   class ComponentDescriptorBase
   {
@@ -58,6 +65,12 @@ namespace components
     /// \return Pointer to a component.
     public: virtual std::unique_ptr<BaseComponent> Create(
                 const components::BaseComponent *_data) const = 0;
+
+    /// \brief Create/get the entt storage for this component in the registry.
+    /// \param[in] _registry The registry to register the storage to.
+    /// \return Pointer to the storage.
+    public: virtual StorageType *RegisterToEntt(
+                entt::basic_registry<Entity> &_registry) const = 0;
   };
 
   /// \brief A class for an object responsible for creating components.
@@ -79,6 +92,13 @@ namespace components
       ComponentTypeT comp(*static_cast<const ComponentTypeT *>(_data));
       return std::make_unique<ComponentTypeT>(comp);
     }
+
+    /// \brief Documentation inherited
+    public: StorageType *RegisterToEntt(
+                entt::basic_registry<Entity> &_registry) const override
+    {
+      return &_registry.storage<ComponentTypeT>();
+    }
   };
 
   /// \brief A wrapper around uintptr_t to prevent implicit conversions.
@@ -92,7 +112,7 @@ namespace components
     }
 
     /// \brief Construct object from a uintptr_t.
-    /// \param[in] _ptr Arbitrary pointer address.
+    /// \param[in] _ptrAddress Arbitrary pointer address.
     explicit RegistrationObjectId(std::uintptr_t _ptrAddress)
         : id(_ptrAddress)
     {
@@ -188,6 +208,20 @@ namespace components
       return {};
     }
 
+    /// \brief Register the component to Entt using the latest available
+    /// component descriptor.
+    /// \param[in] _registry The registry to register to.
+    /// \return Pointer to the storage if registered, nullptr otherwise.
+    public: GZ_SIM_HIDDEN StorageType *RegisterToEntt(
+        entt::basic_registry<Entity> &_registry) const
+    {
+      if (!this->queue.empty())
+      {
+        return this->queue.front().second->RegisterToEntt(_registry);
+      }
+      return nullptr;
+    }
+
     /// \brief Queue of component descriptors registered by static registration
     /// objects.
     private: std::deque<std::pair<RegistrationObjectId,
@@ -201,6 +235,8 @@ namespace components
     public: Factory(const Factory &) = delete;
     public: void operator=(const Factory &) = delete;
     public: void operator=(Factory &&) = delete;
+
+    public: using StorageType = components::StorageType;
 
     /// \brief Get an instance of the singleton
     public: GZ_SIM_VISIBLE static Factory *Instance();
@@ -218,17 +254,14 @@ namespace components
     void Register(const char *_type, ComponentDescriptorBase *_compDesc,
                   RegistrationObjectId  _regObjId)
     {
-      auto typeHash = gz::common::hash64(_type);
-
       // Initialize static member variable - we need to set these
       // static members for every shared lib that uses the component, but we
       // only add them to the maps below once.
-      ComponentTypeT::typeId = typeHash;
       ComponentTypeT::typeName = _type;
 
       // Check if component has already been registered by another library
       auto runtimeName = typeid(ComponentTypeT).name();
-      auto runtimeNameIt = this->runtimeNamesById.find(typeHash);
+      auto runtimeNameIt = this->runtimeNamesById.find(ComponentTypeT::typeId);
       if (runtimeNameIt != this->runtimeNamesById.end())
       {
         // Warn user if type was previously registered with a different name.
@@ -260,6 +293,23 @@ namespace components
       this->compsById[ComponentTypeT::typeId].Add(_regObjId, _compDesc);
       namesById[ComponentTypeT::typeId] = ComponentTypeT::typeName;
       runtimeNamesById[ComponentTypeT::typeId] = runtimeName;
+    }
+
+    /// \brief Initialize the storage for all components or a specific type.
+    /// \param[in] _registry The registry to initialize storages for.
+    /// \param[in] _typeId Id to register.
+    /// \return Pointer to the storage if _typeId was registered correctly,
+    /// or nullptr if _typeId was not registered.
+    public: StorageType *RegisterToEntt(
+                entt::basic_registry<Entity>& _registry,
+                const ComponentTypeId _typeId)
+    {
+      const auto it = this->compsById.find(_typeId);
+      if (it == this->compsById.end())
+      {
+        return nullptr;
+      }
+      return it->second.RegisterToEntt(_registry);
     }
 
     /// \brief Unregister a component so that the factory can't create instances
@@ -404,41 +454,112 @@ namespace components
     public: std::map<ComponentTypeId, std::string>
         runtimeNamesById;
   };
+}
+}
+}
+}
 
-  /// \brief Static component registration macro.
-  ///
-  /// Use this macro to register components.
-  ///
-  /// \details Each time a plugin which uses a component is loaded, it tries to
-  /// register the component again, so we prevent that.
-  /// \param[in] _compType Component type name.
-  /// \param[in] _classname Class name for component.
-  #define GZ_SIM_REGISTER_COMPONENT(_compType, _classname) \
-  class GzSimComponents##_classname \
+/// \brief Internal macro: ADL helper functions for a component type.
+///
+/// Defines two non-member functions in the current namespace, discovered by
+/// the `Component` class template via Argument Dependent Lookup (ADL):
+/// `gzSimFactoryComponentTypeId` (the component's unique ID) and
+/// `gzSimFactoryComponentTypeName` (its registered name). ADL removes the
+/// constraint that all components must be defined inside the
+/// `gz::sim::components` namespace, enabling custom components to be defined
+/// in any namespace.
+///
+/// We take a pointer to `_classname` as the argument to avoid name collisions
+/// and support distinguishing components that share the same tag type but have
+/// different data types.
+///
+/// These helpers are cheap to compile: no Factory or EnTT machinery is
+/// instantiated by them.
+#define GZ_SIM_COMPONENT_ADL_HELPERS(_compType, _classname) \
+inline constexpr ::gz::sim::ComponentTypeId \
+  gzSimFactoryComponentTypeId(_classname* ptr) \
+{ \
+  (void)ptr; \
+  return ::gz::common::hash64(_compType); \
+} \
+inline constexpr const char * \
+  gzSimFactoryComponentTypeName(_classname* ptr) \
+{ \
+  (void)ptr; \
+  return _compType; \
+}
+
+/// \brief Internal macro: static Factory registration object.
+///
+/// Instantiates the Factory registration machinery
+/// (`Factory::Register<_classname>`, `ComponentDescriptor<_classname>` and,
+/// through it, the EnTT storage for the component) and creates a static
+/// object whose constructor/destructor register/unregister the component
+/// when the enclosing shared library is loaded/unloaded. This is expensive
+/// to compile — expand it once per shared library, not per translation
+/// unit.
+#define GZ_SIM_COMPONENT_REGISTRATION(_compType, _classname) \
+class GzSimComponents##_classname \
+{ \
+  public: GzSimComponents##_classname() \
   { \
-    public: GzSimComponents##_classname() \
-    { \
-      using namespace gz;\
-      using Desc = sim::components::ComponentDescriptor<_classname>; \
-      sim::components::Factory::Instance()->Register<_classname>(\
-        _compType, new Desc(), sim::components::RegistrationObjectId(this));\
-    } \
-    public: GzSimComponents##_classname( \
-                const GzSimComponents##_classname&) = delete; \
-    public: GzSimComponents##_classname( \
-                GzSimComponents##_classname&) = delete; \
-    public: ~GzSimComponents##_classname() \
-    { \
-      using namespace gz; \
-      sim::components::Factory::Instance()->Unregister<_classname>( \
-          sim::components::RegistrationObjectId(this)); \
-    } \
-  }; \
-  static GzSimComponents##_classname\
-    GzSimComponentsInitializer##_classname;
-}
-}
-}
-}
+    using Desc = ::gz::sim::components::ComponentDescriptor<_classname>; \
+    ::gz::sim::components::Factory::Instance()->Register<_classname>(\
+      _compType, new Desc(), \
+      ::gz::sim::components::RegistrationObjectId(this));\
+  } \
+  public: GzSimComponents##_classname( \
+              const GzSimComponents##_classname&) = delete; \
+  public: GzSimComponents##_classname( \
+              GzSimComponents##_classname&) = delete; \
+  public: ~GzSimComponents##_classname() \
+  { \
+    ::gz::sim::components::Factory::Instance()->Unregister<_classname>( \
+        ::gz::sim::components::RegistrationObjectId(this)); \
+  } \
+}; \
+static GzSimComponents##_classname\
+  GzSimComponentsInitializer##_classname;
+
+/// \brief Component declaration macro for components defined in headers
+/// that are included by many translation units.
+///
+/// Expands only the ADL helpers (typeId/typeName), keeping component
+/// headers cheap to include: no registration static, no Factory/EnTT
+/// template instantiation in consumer translation units.
+///
+/// Registration of gz-sim's own components happens once per library
+/// in `src/ComponentFactory.cc`, which defines
+/// `GZ_SIM_COMPONENT_DEFINITION_TU` before including every component
+/// header, turning this macro into a full registration there.
+///
+/// Out-of-tree code should normally keep using GZ_SIM_REGISTER_COMPONENT;
+/// use this macro only together with your own definition TU that defines
+/// GZ_SIM_COMPONENT_DEFINITION_TU and includes your component headers.
+#ifdef GZ_SIM_COMPONENT_DEFINITION_TU
+#define GZ_SIM_DECLARE_COMPONENT(_compType, _classname) \
+GZ_SIM_COMPONENT_ADL_HELPERS(_compType, _classname) \
+GZ_SIM_COMPONENT_REGISTRATION(_compType, _classname)
+#else
+#define GZ_SIM_DECLARE_COMPONENT(_compType, _classname) \
+GZ_SIM_COMPONENT_ADL_HELPERS(_compType, _classname)
+#endif
+
+/// \brief Static component registration macro.
+///
+/// Use this macro to register components.
+///
+/// \details Each time a plugin which uses a component is loaded, it tries to
+/// register the component again, so we prevent that.
+/// \param[in] _compType Component type name.
+/// \param[in] _classname Class name for component.
+///
+/// Declares the ADL helper functions (see GZ_SIM_COMPONENT_ADL_HELPERS) and
+/// creates the static registration object in the current translation unit.
+/// Prefer GZ_SIM_DECLARE_COMPONENT + a single definition TU when a library
+/// defines many components in headers included by many translation units.
+#define GZ_SIM_REGISTER_COMPONENT(_compType, _classname) \
+GZ_SIM_COMPONENT_ADL_HELPERS(_compType, _classname) \
+GZ_SIM_COMPONENT_REGISTRATION(_compType, _classname)
 
 #endif

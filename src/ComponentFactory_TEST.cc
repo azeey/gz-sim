@@ -22,6 +22,7 @@
 #include "gz/sim/components/Factory.hh"
 #include "gz/sim/components/Name.hh"
 #include "gz/sim/components/Pose.hh"
+#include "gz/sim/components/SlipComplianceCmd.hh"
 
 #include "../test/helpers/EnvTestFixture.hh"
 
@@ -39,26 +40,23 @@ class ComponentFactoryTest : public InternalFixture<::testing::Test>
   }
 };
 
+// Create a custom component.
+using MyCustom = components::Component<components::NoData, class MyCustomTag>;
+GZ_SIM_REGISTER_COMPONENT("gz_sim_components.MyCustom", MyCustom);
+
+// Component for manual register / unregister testing
+using ManualComp = components::Component<int, class ManualCompTag>;
+// NOLINTNEXTLINE(readability/casting)
+inline constexpr ::gz::sim::ComponentTypeId gzSimFactoryComponentTypeId(
+    ManualComp *)
+{
+  return ::gz::common::hash64("gz_sim_components.ManualComp");
+}
+
 /////////////////////////////////////////////////
 TEST_F(ComponentFactoryTest, Register)
 {
   auto factory = components::Factory::Instance();
-
-  // Create a custom component.
-  using MyCustom = components::Component<components::NoData, class MyCustomTag>;
-
-  // Check it has no type id yet
-  EXPECT_EQ(0u, MyCustom::typeId);
-  EXPECT_EQ(nullptr, MyCustom::typeName);
-  EXPECT_EQ("", factory->Name(MyCustom::typeId));
-
-  // Store number of registered component types
-  auto registeredCount = factory->TypeIds().size();
-
-  factory->Register<MyCustom>("gz_sim_components.MyCustom",
-                              new components::ComponentDescriptor<MyCustom>(),
-                              components::RegistrationObjectId(this));
-
   // Check now it has type id
   EXPECT_NE(0u, MyCustom::typeId);
   EXPECT_EQ("gz_sim_components.MyCustom", MyCustom::typeName);
@@ -67,31 +65,21 @@ TEST_F(ComponentFactoryTest, Register)
 
   // Check factory knows id
   auto ids = factory->TypeIds();
-  EXPECT_EQ(registeredCount + 1, ids.size());
   EXPECT_NE(ids.end(), std::find(ids.begin(), ids.end(), MyCustom::typeId));
+}
 
-  // Registering the component twice doesn't change the number of type ids.
-  factory->Register<MyCustom>("gz_sim_components.MyCustom",
-                              new components::ComponentDescriptor<MyCustom>(),
-                              components::RegistrationObjectId(this));
+/////////////////////////////////////////////////
+TEST_F(ComponentFactoryTest, RegisteredNamesHaveNoWhitespace)
+{
+  auto factory = components::Factory::Instance();
 
-  EXPECT_EQ(registeredCount + 1, factory->TypeIds().size());
-
-  // Fail to register 2 components with same name
-  using Duplicate = components::Component<components::NoData,
-      class DuplicateTag>;
-
-  factory->Register<Duplicate>("gz_sim_components.MyCustom",
-                               new components::ComponentDescriptor<Duplicate>(),
-                               components::RegistrationObjectId(this));
-
-  EXPECT_EQ(registeredCount + 1, factory->TypeIds().size());
-
-  // Unregister
-  factory->Unregister<MyCustom>(components::RegistrationObjectId(this));
-
-  ids = factory->TypeIds();
-  EXPECT_EQ(registeredCount + 1, ids.size());
+  for (const auto &id : factory->TypeIds())
+  {
+    const std::string name = factory->Name(id);
+    ASSERT_FALSE(name.empty());
+    EXPECT_NE(' ', name.front()) << "Leading space in component name: " << name;
+    EXPECT_NE(' ', name.back()) << "Trailing space in component name: " << name;
+  }
 }
 
 /////////////////////////////////////////////////

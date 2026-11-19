@@ -30,6 +30,8 @@
 #include <gz/math/Vector3.hh>
 #include <gz/math/AxisAlignedBox.hh>
 
+#include <gz/utils/ImplPtr.hh>
+
 #include <gz/sim/config.hh>
 #include <gz/sim/EntityComponentManager.hh>
 #include <gz/sim/Export.hh>
@@ -42,8 +44,6 @@ namespace gz
   {
     // Inline bracket to help doxygen filtering.
     inline namespace GZ_SIM_VERSION_NAMESPACE {
-    // Forward declarations.
-    class GZ_SIM_HIDDEN LinkPrivate;
     //
     /// \class Link Link.hh gz/sim/Link.hh
     /// \brief This class provides wrappers around entities and components
@@ -69,27 +69,6 @@ namespace gz
       /// \brief Constructor
       /// \param[in] _entity Link entity
       public: explicit Link(sim::Entity _entity = kNullEntity);
-
-      /// \brief Copy constructor
-      /// \param[in] _link Link to copy.
-      public: Link(const Link &_link);
-
-      /// \brief Move constructor
-      /// \param[in] _link Link to move.
-      public: Link(Link &&_link) noexcept;
-
-      /// \brief Move assignment operator.
-      /// \param[in] _link Link component to move.
-      /// \return Reference to this.
-      public: Link &operator=(Link &&_link) noexcept;
-
-      /// \brief Copy assignment operator.
-      /// \param[in] _link Link to copy.
-      /// \return Reference to this.
-      public: Link &operator=(const Link &_link);
-
-      /// \brief Destructor
-      public: ~Link();
 
       /// \brief Get the entity which this Link is related to.
       /// \return Link entity.
@@ -128,6 +107,20 @@ namespace gz
       /// \param[in] _ecm Entity-component manager.
       /// \return True if wind mode is on.
       public: bool WindMode(const EntityComponentManager &_ecm) const;
+
+      /// \brief Get whether this link has gravity enabled.
+      /// \param[in] _ecm Entity-component manager.
+      /// \return True if gravity mode is on, nullopt if component is missing.
+      public: std::optional<bool> GravityEnabled(
+          const EntityComponentManager &_ecm) const;
+
+      /// \brief Get whether this link is kinematic. A kinematic link does
+      /// not react to forces and only moves as commanded.
+      /// \param[in] _ecm Entity-component manager.
+      /// \return True if the link is kinematic, nullopt if component is
+      /// missing.
+      public: std::optional<bool> Kinematic(
+          const EntityComponentManager &_ecm) const;
 
       /// \brief Get the ID of a collision entity which is an immediate child of
       /// this link.
@@ -211,7 +204,7 @@ namespace gz
       public: std::optional<math::Pose3d> WorldInertialPose(
           const EntityComponentManager &_ecm) const;
 
-      /// \brief Get the linear velocity at the origin of of the link frame
+      /// \brief Get the linear velocity at the origin of the link frame
       /// expressed in the world frame, using an offset expressed in a
       /// body-fixed frame. If no offset is given, the velocity at the origin of
       /// the Link frame will be returned.
@@ -265,6 +258,21 @@ namespace gz
       /// \param[in] _vel Angular velocity to set in Link's Frame.
       public: void SetAngularVelocity(EntityComponentManager &_ecm,
           const math::Vector3d &_vel) const;
+
+      /// \brief Set a new command to change the link's gravity.
+      /// \param[in] _ecm Entity-component manager.
+      /// \param[in] _enabled True to enable gravity, false otherwise.
+      public: void SetGravityEnabled(EntityComponentManager &_ecm,
+          bool _enabled) const;
+
+      /// \brief Set a new command to change whether the link is kinematic.
+      /// Requires a physics engine that supports the KinematicLink feature,
+      /// e.g. bullet-featherstone.
+      /// \param[in] _ecm Entity-component manager.
+      /// \param[in] _kinematic True to make the link kinematic, false to
+      /// make it dynamic.
+      public: void SetKinematic(EntityComponentManager &_ecm,
+          bool _kinematic) const;
 
       /// \brief Get the angular acceleration of the body in the world frame.
       /// \param[in] _ecm Entity-component manager.
@@ -417,8 +425,8 @@ namespace gz
       public: std::optional<math::AxisAlignedBox> ComputeAxisAlignedBox(
         const EntityComponentManager &_ecm) const;
 
-      /// \brief Pointer to private data.
-      private: std::unique_ptr<LinkPrivate> dataPtr;
+      /// \brief Private data pointer.
+      GZ_UTILS_IMPL_PTR(dataPtr)
     };
     }
   }

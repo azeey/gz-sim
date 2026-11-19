@@ -39,6 +39,93 @@
 using namespace gz;
 using namespace sim;
 
+
+class Server::EcmGuard::Implementation
+{
+  public: std::unique_lock<std::mutex> lock;
+  public: EntityComponentManager *ecm{nullptr};
+};
+
+
+//////////////////////////////////////////////////
+Server::EcmGuard::EcmGuard()
+  : dataPtr(gz::utils::MakeUniqueImpl<Implementation>())
+{
+}
+
+//////////////////////////////////////////////////
+Server::EcmGuard::~EcmGuard() = default;
+
+//////////////////////////////////////////////////
+Server::EcmGuard::EcmGuard(EcmGuard &&_other) noexcept = default;
+
+//////////////////////////////////////////////////
+Server::EcmGuard &Server::EcmGuard::operator=(
+    EcmGuard &&_other) noexcept = default;
+
+//////////////////////////////////////////////////
+Server::EcmGuard::operator bool() const
+{
+  return this->Valid();
+}
+
+//////////////////////////////////////////////////
+bool Server::EcmGuard::Valid() const
+{
+  return this->dataPtr != nullptr &&
+         this->dataPtr->ecm != nullptr &&
+         this->dataPtr->lock.owns_lock();
+}
+
+//////////////////////////////////////////////////
+EntityComponentManager *Server::EcmGuard::operator->()
+{
+  return this->dataPtr ? this->dataPtr->ecm : nullptr;
+}
+
+//////////////////////////////////////////////////
+const EntityComponentManager *Server::EcmGuard::operator->() const
+{
+  return this->dataPtr ? this->dataPtr->ecm : nullptr;
+}
+
+//////////////////////////////////////////////////
+EntityComponentManager &Server::EcmGuard::operator*()
+{
+  return *this->dataPtr->ecm;
+}
+
+//////////////////////////////////////////////////
+const EntityComponentManager &Server::EcmGuard::operator*() const
+{
+  return *this->dataPtr->ecm;
+}
+
+//////////////////////////////////////////////////
+EntityComponentManager &Server::EcmGuard::Ecm()
+{
+  return *this->dataPtr->ecm;
+}
+
+//////////////////////////////////////////////////
+const EntityComponentManager &Server::EcmGuard::Ecm() const
+{
+  return *this->dataPtr->ecm;
+}
+
+//////////////////////////////////////////////////
+void Server::EcmGuard::Reset()
+{
+  if (this->dataPtr)
+  {
+    if (this->dataPtr->lock.owns_lock())
+    {
+      this->dataPtr->lock.unlock();
+    }
+    this->dataPtr->ecm = nullptr;
+  }
+}
+
 /////////////////////////////////////////////////
 Server::Server(const ServerConfig &_config)
   : dataPtr(new ServerPrivate)
@@ -141,12 +228,25 @@ Server::Server(const ServerConfig &_config)
 }
 
 /////////////////////////////////////////////////
-Server::~Server() = default;
+Server::~Server()
+{
+  // Clear findfile callback to avoid lifetime mismatches between callbacks and
+  // pointers stored in the callbacks in case a new instance of Server is
+  // created afterward (e.g. in tests).
+  common::systemPaths()->ClearFindFileCallbacks();
+  common::systemPaths()->ClearFindFileURICallbacks();
+}
 
 /////////////////////////////////////////////////
 bool Server::Run(const bool _blocking, const uint64_t _iterations,
     const bool _paused)
 {
+  if (this->GetStatus() == Server::Status::EXITED)
+  {
+    gzwarn << "The server has exited with errors and cannot be run.\n";
+    return false;
+  }
+
   // Set the initial pause state of each simulation runner.
   for (std::unique_ptr<SimulationRunner> &runner : this->dataPtr->simRunners)
     runner->SetPaused(_paused);
@@ -193,6 +293,12 @@ bool Server::Run(const bool _blocking, const uint64_t _iterations,
 /////////////////////////////////////////////////
 bool Server::RunOnce(const bool _paused)
 {
+  if (this->GetStatus() == Server::Status::EXITED)
+  {
+    gzwarn << "The server has exited with errors and cannot be run.\n";
+    return false;
+  }
+
   if (_paused)
   {
     for (auto &runner : this->dataPtr->simRunners)
@@ -415,7 +521,58 @@ bool Server::Reset(const std::size_t _runnerId)
 }
 
 //////////////////////////////////////////////////
+Server::EcmGuard Server::EcmScope(const std::size_t _runnerId)
+{
+  EcmGuard guard;
+  std::unique_lock<std::mutex> lock(this->dataPtr->runMutex);
+
+  if (this->dataPtr->running)
+  {
+    gzerr << "Cannot access ECM while the server is running.\n";
+    return guard;
+  }
+  if (_runnerId >= this->dataPtr->simRunners.size())
+  {
+    gzerr << "Runner id " << _runnerId << " out of bounds.\n";
+    return guard;
+  }
+  if (this->dataPtr->exitedWithErrors)
+  {
+    gzerr << "Cannot access ECM because server exited with errors.\n";
+    return guard;
+  }
+
+  guard.dataPtr->lock = std::move(lock);
+  guard.dataPtr->ecm =
+      &this->dataPtr->simRunners[_runnerId]->EntityCompMgr();
+  return guard;
+}
+
+//////////////////////////////////////////////////
+std::optional<UpdateInfo> Server::CurrentInfo(
+    const unsigned int _worldIndex) const
+{
+  if (_worldIndex < this->dataPtr->simRunners.size())
+  {
+    return this->dataPtr->simRunners[_worldIndex]->CurrentInfo();
+  }
+  return std::nullopt;
+}
+
+//////////////////////////////////////////////////
 void Server::Stop()
 {
   this->dataPtr->Stop();
+}
+
+//////////////////////////////////////////////////
+Server::Status gz::sim::Server::GetStatus() const
+{
+  if (this->dataPtr->exitedWithErrors)
+    return Server::Status::EXITED;
+
+  if (this->dataPtr->running)
+    return Server::Status::RUNNING;
+
+  return Server::Status::STOPPED;
 }

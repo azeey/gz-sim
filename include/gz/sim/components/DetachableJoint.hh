@@ -94,8 +94,16 @@ namespace components
   using DetachableJoint =
       Component<DetachableJointInfo, class DetachableJointTag,
                 serializers::DetachableJointInfoSerializer>;
-  GZ_SIM_REGISTER_COMPONENT("gz_sim_components.DetachableJoint",
+  GZ_SIM_DECLARE_COMPONENT("gz_sim_components.DetachableJoint",
                                 DetachableJoint)
+
+  /// \brief A component that overrides the global enforce_fixed_constraint
+  /// policy for a specific detachable joint.
+  using DetachableJointEnforceFixedConstraint =
+      Component<bool, class DetachableJointEnforceFixedConstraintTag>;
+  GZ_SIM_DECLARE_COMPONENT(
+      "gz_sim_components.DetachableJointEnforceFixedConstraint",
+      DetachableJointEnforceFixedConstraint)
 }
 }
 }

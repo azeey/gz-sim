@@ -43,6 +43,8 @@ pybind11_add_module(${BINDINGS_MODULE_NAME} MODULE
   src/gz/sim/Util.cc
   src/gz/sim/World.cc
   src/gz/sim/InstallationDirectories.cc
+  src/gz/sim/Components.cc
+  src/gz/sim/PyComponents.cc
 )
 
 target_link_libraries(${BINDINGS_MODULE_NAME} PRIVATE
@@ -53,7 +55,8 @@ target_link_libraries(${BINDINGS_MODULE_NAME} PRIVATE
 set_target_properties(${BINDINGS_MODULE_NAME} PROPERTIES CXX_VISIBILITY_PRESET "hidden")
 
 target_compile_definitions(${BINDINGS_MODULE_NAME} PRIVATE
-  BINDINGS_MODULE_NAME=${BINDINGS_MODULE_NAME})
+  BINDINGS_MODULE_NAME=${BINDINGS_MODULE_NAME}
+  HAVE_PYBIND11)
 
 # TODO(ahcorde): Move this module to gz-common
 
@@ -76,11 +79,14 @@ configure_build_install_location(${GZ_COMMON_BINDINGS_MODULE_NAME})
 if (BUILD_TESTING)
   set(python_tests
     actor_TEST
+    components_TEST
+    ecm_each_TEST
     joint_TEST
     light_TEST
     link_TEST
     model_TEST
     sensor_TEST
+    server_TEST
     testFixture_TEST
     world_TEST
   )
@@ -105,10 +111,8 @@ if (BUILD_TESTING)
         "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/python/test/${test}.py")
     endif()
 
-    set(_env_vars)
-    list(APPEND _env_vars "PYTHONPATH=${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/python/:$ENV{PYTHONPATH}")
-    list(APPEND _env_vars "LD_LIBRARY_PATH=${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}:$ENV{LD_LIBRARY_PATH}")
     set_tests_properties(${test} PROPERTIES
-      ENVIRONMENT "${_env_vars}")
+      ENVIRONMENT_MODIFICATION
+        "PYTHONPATH=path_list_prepend:${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/python/;PYTHONPATH=path_list_prepend:${CMAKE_BINARY_DIR}/lib;LD_LIBRARY_PATH=path_list_prepend:${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR};LD_LIBRARY_PATH=path_list_prepend:${CMAKE_BINARY_DIR}/lib")
   endforeach()
 endif()

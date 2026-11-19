@@ -65,7 +65,9 @@ cc_library(
         "@gz-common",
         "@gz-common//testing",
         "@gz-math",
+        "@gz-msgs//:gzmsgs_cc_proto",
         "@gz-transport",
+        "@sdformat",
     ],
 )
 

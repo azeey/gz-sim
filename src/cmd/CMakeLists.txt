@@ -8,7 +8,7 @@ target_link_libraries(${model_executable}
 
 install(
   TARGETS ${model_executable}
-  DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}${PROJECT_VERSION_MAJOR}/
+  DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}/
 )
 
 # Create sim utilities library
@@ -39,7 +39,7 @@ target_link_libraries(${server_executable}
 
 install(
   TARGETS ${server_executable}
-  DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}${PROJECT_VERSION_MAJOR}/
+  DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}/
 )
 
 # Create GUI executable if enabled
@@ -53,7 +53,7 @@ if(ENABLE_GUI)
 
   install(
     TARGETS ${gui_executable}
-    DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}${PROJECT_VERSION_MAJOR}/
+    DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}/
   )
 endif()
 
@@ -65,14 +65,14 @@ target_link_libraries(${sim_executable}
 
 install(
   TARGETS ${sim_executable}
-  DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}${PROJECT_VERSION_MAJOR}/
+  DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}/
 )
 
 if(ENABLE_GUI)
   target_compile_definitions(${sim_executable} PRIVATE WITH_GUI)
   target_compile_definitions(${sim_executable}
     PRIVATE
-      "GZ_SIM_GUI_EXE=\"${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}${PROJECT_VERSION_MAJOR}/$<TARGET_FILE_NAME:${gui_executable}>\""
+      "GZ_SIM_GUI_EXE_RELATIVE_PATH=\"${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}/$<TARGET_FILE_NAME:${gui_executable}>\""
   )
 endif()
 
@@ -98,7 +98,8 @@ if(BUILD_TESTING AND GZ_TOOLS_PROGRAM)
       gz-utils::gz-utils
       ${PROJECT_LIBRARY_TARGET_NAME}
     ENVIRONMENT
-        GZ_SIM_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
+      GZ_SIM_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
+      GZ_IP=127.0.0.1
   )
 endif()
 
@@ -147,13 +148,11 @@ endforeach()
 
 #===============================================================================
 # Generate the ruby script for internal testing of model command.
-# Note that the major version of the library is included in the name.
-# Ex: cmdmodel0.rb
 set(gz_model_ruby_path
-  "${CMAKE_BINARY_DIR}/test/lib/$<CONFIG>/ruby/gz/cmdmodel${PROJECT_VERSION_MAJOR}")
+  "${CMAKE_BINARY_DIR}/test/lib/$<CONFIG>/ruby/gz/cmdmodel")
 set(cmd_model_script_generated_test "${gz_model_ruby_path}.rb")
 set(cmd_model_script_configured_test
-  "${CMAKE_CURRENT_BINARY_DIR}/test_cmdmodel${PROJECT_VERSION_MAJOR}.rb.configured")
+  "${CMAKE_CURRENT_BINARY_DIR}/test_cmdmodel.rb.configured")
 
 # Set the library_location variable to the full path of the library file within
 # the build directory.
@@ -171,28 +170,24 @@ file(GENERATE
 )
 
 # Generate a configuration file for internal testing.
-# Note that the major version of the library is included in the name.
-# Ex: model0.yaml
 configure_file(
   "model.yaml.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/model${PROJECT_VERSION_MAJOR}.yaml.configured"
+  "${CMAKE_CURRENT_BINARY_DIR}/model.yaml.configured"
   @ONLY
 )
 
 file(GENERATE
-  OUTPUT "${CMAKE_BINARY_DIR}/test/conf/$<CONFIG>/model${PROJECT_VERSION_MAJOR}.yaml"
-  INPUT "${CMAKE_CURRENT_BINARY_DIR}/model${PROJECT_VERSION_MAJOR}.yaml.configured"
+  OUTPUT "${CMAKE_BINARY_DIR}/test/conf/$<CONFIG>/model.yaml"
+  INPUT "${CMAKE_CURRENT_BINARY_DIR}/model.yaml.configured"
 )
 
 #===============================================================================
 # Generate the ruby script for internal testing of sim command.
-# Note that the major version of the library is included in the name.
-# Ex: cmdsim0.rb
 set(gz_sim_ruby_path
-  "${CMAKE_BINARY_DIR}/test/lib/$<CONFIG>/ruby/gz/cmdsim${PROJECT_VERSION_MAJOR}")
+  "${CMAKE_BINARY_DIR}/test/lib/$<CONFIG>/ruby/gz/cmdsim")
 set(cmd_sim_script_generated_test "${gz_sim_ruby_path}.rb")
 set(cmd_sim_script_configured_test
-  "${CMAKE_CURRENT_BINARY_DIR}/test_cmdsim${PROJECT_VERSION_MAJOR}.rb.configured")
+  "${CMAKE_CURRENT_BINARY_DIR}/test_cmdsim.rb.configured")
 
 # Set the sim_exe_location variable to the full path of the executable within
 # the build directory.
@@ -210,31 +205,27 @@ file(GENERATE
 )
 
 # Generate a configuration file for internal testing.
-# Note that the major version of the library is included in the name.
-# Ex: sim0.yaml
 configure_file(
   "sim.yaml.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/sim${PROJECT_VERSION_MAJOR}.yaml.configured"
+  "${CMAKE_CURRENT_BINARY_DIR}/sim.yaml.configured"
   @ONLY
 )
 
 file(GENERATE
-  OUTPUT "${CMAKE_BINARY_DIR}/test/conf/$<CONFIG>/sim${PROJECT_VERSION_MAJOR}.yaml"
-  INPUT "${CMAKE_CURRENT_BINARY_DIR}/sim${PROJECT_VERSION_MAJOR}.yaml.configured"
+  OUTPUT "${CMAKE_BINARY_DIR}/test/conf/$<CONFIG>/sim.yaml"
+  INPUT "${CMAKE_CURRENT_BINARY_DIR}/sim.yaml.configured"
 )
 
 
 #===============================================================================
 # Used for the installed model command version.
 # Generate the ruby script that gets installed.
-# Note that the major version of the library is included in the name.
-# Ex: cmdmodel0.rb
-set(cmd_model_script_generated "${CMAKE_CURRENT_BINARY_DIR}/cmdmodel${PROJECT_VERSION_MAJOR}.rb")
+set(cmd_model_script_generated "${CMAKE_CURRENT_BINARY_DIR}/cmdmodel.rb")
 set(cmd_model_script_configured "${cmd_model_script_generated}.configured")
 
 # Set the library_location variable to the relative path to the library file
 # within the install directory structure.
-set(model_exe_location "../../../${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}${PROJECT_VERSION_MAJOR}/$<TARGET_FILE_NAME:${model_executable}>")
+set(model_exe_location "../../../${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}/$<TARGET_FILE_NAME:${model_executable}>")
 
 configure_file(
   "cmdmodel.rb.in"
@@ -250,9 +241,9 @@ file(GENERATE
 install(FILES ${cmd_model_script_generated} DESTINATION lib/ruby/gz)
 
 # Used for the installed version.
-set(gz_model_ruby_path "${CMAKE_INSTALL_PREFIX}/lib/ruby/gz/cmdmodel${PROJECT_VERSION_MAJOR}")
+set(gz_model_ruby_path "${CMAKE_INSTALL_PREFIX}/lib/ruby/gz/cmdmodel")
 
-set(model_configured "${CMAKE_CURRENT_BINARY_DIR}/model${PROJECT_VERSION_MAJOR}.yaml")
+set(model_configured "${CMAKE_CURRENT_BINARY_DIR}/model.yaml")
 configure_file(
   "model.yaml.in"
   ${model_configured}
@@ -263,14 +254,12 @@ install(FILES ${model_configured} DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/gz/)
 #===============================================================================
 # Used for the installed sim command version.
 # Generate the ruby script that gets installed.
-# Note that the major version of the library is included in the name.
-# Ex: cmdsim0.rb
-set(cmd_sim_script_generated "${CMAKE_CURRENT_BINARY_DIR}/cmdsim${PROJECT_VERSION_MAJOR}.rb")
+set(cmd_sim_script_generated "${CMAKE_CURRENT_BINARY_DIR}/cmdsim.rb")
 set(cmd_sim_script_configured "${cmd_sim_script_generated}.configured")
 
 # Set the sim_exe_location variable to the relative path to the executable
 # within the install directory structure.
-set(sim_exe_location "../../../${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}${PROJECT_VERSION_MAJOR}/$<TARGET_FILE_NAME:${sim_executable}>")
+set(sim_exe_location "../../../${CMAKE_INSTALL_LIBEXECDIR}/gz/${GZ_DESIGNATION}/$<TARGET_FILE_NAME:${sim_executable}>")
 
 configure_file(
   "cmdsim.rb.in"
@@ -286,9 +275,9 @@ file(GENERATE
 install(FILES ${cmd_sim_script_generated} DESTINATION lib/ruby/gz)
 
 # Used for the installed version.
-set(gz_sim_ruby_path "${CMAKE_INSTALL_PREFIX}/lib/ruby/gz/cmdsim${PROJECT_VERSION_MAJOR}")
+set(gz_sim_ruby_path "${CMAKE_INSTALL_PREFIX}/lib/ruby/gz/cmdsim")
 
-set(sim_configured "${CMAKE_CURRENT_BINARY_DIR}/sim${PROJECT_VERSION_MAJOR}.yaml")
+set(sim_configured "${CMAKE_CURRENT_BINARY_DIR}/sim.yaml")
 configure_file(
   "sim.yaml.in"
   ${sim_configured}
@@ -302,18 +291,18 @@ install(FILES ${sim_configured} DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/gz/)
 # Tack version onto and install the bash completion script
 configure_file(
   "sim.bash_completion.sh"
-    "${CMAKE_CURRENT_BINARY_DIR}/sim${PROJECT_VERSION_MAJOR}.bash_completion.sh" @ONLY)
+    "${CMAKE_CURRENT_BINARY_DIR}/sim.bash_completion.sh" @ONLY)
 install(
   FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/sim${PROJECT_VERSION_MAJOR}.bash_completion.sh
+    ${CMAKE_CURRENT_BINARY_DIR}/sim.bash_completion.sh
   DESTINATION
-    ${CMAKE_INSTALL_DATAROOTDIR}/gz/gz${GZ_TOOLS_VER}.completion.d)
+    ${CMAKE_INSTALL_DATAROOTDIR}/gz/gz.completion.d)
 
 configure_file(
   "model.bash_completion.sh"
-    "${CMAKE_CURRENT_BINARY_DIR}/model${PROJECT_VERSION_MAJOR}.bash_completion.sh" @ONLY)
+    "${CMAKE_CURRENT_BINARY_DIR}/model.bash_completion.sh" @ONLY)
 install(
   FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/model${PROJECT_VERSION_MAJOR}.bash_completion.sh
+    ${CMAKE_CURRENT_BINARY_DIR}/model.bash_completion.sh
   DESTINATION
-    ${CMAKE_INSTALL_DATAROOTDIR}/gz/gz${GZ_TOOLS_VER}.completion.d)
+    ${CMAKE_INSTALL_DATAROOTDIR}/gz/gz.completion.d)

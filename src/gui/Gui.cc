@@ -258,6 +258,13 @@ std::string launchQuickStart(int &_argc, char **_argv,
 
   gzdbg << "Reading Quick start menu config." << std::endl;
   auto showDialog = dialog->ReadConfigAttribute(_configInUse, "show_again");
+  // Quick start menu is not supported on Windows at the moment, see
+  // https://github.com/gazebosim/gz-sim/issues/3106
+  #ifdef _WIN32
+  gzdbg << "Hardcoding Quick start menu config to "
+        << "false as we are on Windows." << std::endl;
+  showDialog = "false";
+  #endif
   if (showDialog == "false")
   {
     gzmsg << "Not showing Quick start menu." << std::endl;
@@ -332,6 +339,20 @@ std::unique_ptr<gz::gui::Application> createGui(
   gzmsg << "Gazebo Sim GUI    v" << GZ_SIM_VERSION_FULL
          << std::endl;
 
+  gzdbg << "Qt Prefix:"
+        << QLibraryInfo::path(QLibraryInfo::PrefixPath).toStdString() << "\n";
+  gzdbg << "Qt libs:"
+        << QLibraryInfo::path(QLibraryInfo::LibrariesPath).toStdString()
+        << "\n";
+  gzdbg << "Qt data:"
+        << QLibraryInfo::path(QLibraryInfo::DataPath).toStdString() << " arch:"
+        << QLibraryInfo::path(QLibraryInfo::ArchDataPath).toStdString() << "\n";
+  gzdbg << "Qt plugins:"
+        << QLibraryInfo::path(QLibraryInfo::PluginsPath).toStdString() << "\n";
+  gzdbg << "Qt imports:"
+        << QLibraryInfo::path(QLibraryInfo::QmlImportsPath).toStdString()
+        << "\n";
+
   // Set auto scaling factor for HiDPI displays
   if (QString::fromLocal8Bit(qgetenv("QT_AUTO_SCREEN_SCALE_FACTOR")).isEmpty())
   {
@@ -339,7 +360,8 @@ std::unique_ptr<gz::gui::Application> createGui(
   }
 
   // check for wayland and force to use X for rendering
-  if (QString::fromLocal8Bit(qgetenv("XDG_SESSION_TYPE")) == "wayland")
+  if (QString::fromLocal8Bit(qgetenv("XDG_SESSION_TYPE")) == "wayland" ||
+      !QString::fromLocal8Bit(qgetenv("WAYLAND_DISPLAY")).isEmpty())
   {
     if (QString::fromLocal8Bit(qgetenv("QT_QPA_PLATFORM")).isEmpty())
     {

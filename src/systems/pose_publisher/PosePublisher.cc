@@ -17,6 +17,8 @@
 
 #include "PosePublisher.hh"
 
+#include <google/protobuf/arena.h>
+
 #include <gz/msgs/pose.pb.h>
 #include <gz/msgs/pose_v.pb.h>
 #include <gz/msgs/time.pb.h>
@@ -95,6 +97,9 @@ class gz::sim::systems::PosePublisherPrivate
   /// \brief publisher for pose data
   public: transport::Node::Publisher poseStaticPub;
 
+  /// \brief Resolved topic names
+  public: PosePublisher::TopicNames resolvedTopicNames;
+
   /// \brief Model interface
   public: Model model{kNullEntity};
 
@@ -160,10 +165,10 @@ class gz::sim::systems::PosePublisherPrivate
   /// performance.
   public: msgs::Pose poseMsg;
 
-  /// \brief A variable that gets populated with poses. This also here as a
-  /// member variable to avoid repeated memory allocations and improve
-  /// performance.
-  public: msgs::Pose_V poseVMsg;
+  /// \brief Arena used to allocate the Pose_V message when usePoseV is true.
+  /// Reset() is called after each publish so the bump-allocator block is
+  /// reused without freeing back to the system allocator.
+  public: google::protobuf::Arena arena;
 
   /// \brief True to publish a vector of poses. False to publish individual pose
   /// msgs.
@@ -178,6 +183,9 @@ PosePublisher::PosePublisher()
   : dataPtr(std::make_unique<PosePublisherPrivate>())
 {
 }
+
+//////////////////////////////////////////////////
+PosePublisher::~PosePublisher() = default;
 
 //////////////////////////////////////////////////
 void PosePublisher::Configure(const Entity &_entity,
@@ -202,13 +210,9 @@ void PosePublisher::Configure(const Entity &_entity,
     _sdf->Get<bool>("publish_nested_model_pose",
         this->dataPtr->publishNestedModelPose).first;
 
-  // for backward compatibility, publish_model_pose will be set to the
-  // same value as publish_nested_model_pose if it is not specified.
-  // todo(iche033) Remove backward compatibility and decouple model and
-  // nested model pose parameter value in gz-sim10
   this->dataPtr->publishModelPose =
     _sdf->Get<bool>("publish_model_pose",
-        this->dataPtr->publishNestedModelPose).first;
+        this->dataPtr->publishModelPose).first;
 
   this->dataPtr->publishVisualPose =
     _sdf->Get<bool>("publish_visual_pose",
@@ -254,14 +258,28 @@ void PosePublisher::Configure(const Entity &_entity,
   this->dataPtr->usePoseV =
     _sdf->Get<bool>("use_pose_vector_msg", this->dataPtr->usePoseV).first;
 
-  std::string poseTopic = topicFromScopedName(_entity, _ecm, true) + "/pose";
-  if (poseTopic.empty())
+  // Generate namespace
+  std::string ns = scopedNamespace(_ecm, _entity);
+
+  auto &resolvedTopicNames = this->dataPtr->resolvedTopicNames;
+  TopicNameOptions poseTopicOptions;
+  poseTopicOptions.sdfElementName = "topic";
+  poseTopicOptions.topicNamespace = ns;
+  poseTopicOptions.defaultTopicPrefix =
+    topicFromScopedName(_entity, _ecm, true);
+  poseTopicOptions.defaultTopicSuffix = "pose";
+  resolvedTopicNames.poseTopic = resolvedTopicName(_sdf, poseTopicOptions);
+  if (resolvedTopicNames.poseTopic.empty())
   {
-    poseTopic = "/pose";
+    resolvedTopicNames.poseTopic = "/pose";
     gzerr << "Empty pose topic generated for pose_publisher system. "
-           << "Setting to " << poseTopic << std::endl;
+             "Setting to " << resolvedTopicNames.poseTopic << std::endl;
   }
-  std::string staticPoseTopic = poseTopic + "_static";
+  resolvedTopicNames.staticPoseTopic =
+    resolvedTopicNames.poseTopic + "_static";
+
+  const std::string &poseTopic = resolvedTopicNames.poseTopic;
+  const std::string &staticPoseTopic = resolvedTopicNames.staticPoseTopic;
 
   if (this->dataPtr->usePoseV)
   {
@@ -285,6 +303,14 @@ void PosePublisher::Configure(const Entity &_entity,
           this->dataPtr->node.Advertise<msgs::Pose>(
           staticPoseTopic);
     }
+  }
+
+  gzmsg << "PosePublisher publishing poses on [" << poseTopic << "]"
+        << std::endl;
+  if (this->dataPtr->staticPosePublisher)
+  {
+    gzmsg << "PosePublisher publishing static poses on ["
+          << staticPoseTopic << "]" << std::endl;
   }
 }
 
@@ -367,6 +393,12 @@ void PosePublisher::PostUpdate(const UpdateInfo &_info,
         convert<msgs::Time>(_info.simTime), this->dataPtr->posePub);
     this->dataPtr->lastPosePubTime = _info.simTime;
   }
+}
+
+//////////////////////////////////////////////////
+PosePublisher::TopicNames PosePublisher::ResolvedTopicNames() const
+{
+  return this->dataPtr->resolvedTopicNames;
 }
 
 //////////////////////////////////////////////////
@@ -532,8 +564,16 @@ void PosePublisherPrivate::PublishPoses(
 
   // publish poses
   msgs::Pose *msg = nullptr;
+  msgs::Pose_V *arenaPoseVMsg = nullptr;
   if (this->usePoseV)
-    this->poseVMsg.Clear();
+  {
+#if GOOGLE_PROTOBUF_VERSION >= 4022000
+    arenaPoseVMsg = google::protobuf::Arena::Create<msgs::Pose_V>(&this->arena);
+#else
+    arenaPoseVMsg =
+      google::protobuf::Arena::CreateMessage<msgs::Pose_V>(&this->arena);
+#endif
+  }
 
   for (const auto &[entity, pose] : _poses)
   {
@@ -543,7 +583,7 @@ void PosePublisherPrivate::PublishPoses(
 
     if (this->usePoseV)
     {
-      msg = this->poseVMsg.add_pose();
+      msg = arenaPoseVMsg->add_pose();
     }
     else
     {
@@ -580,7 +620,13 @@ void PosePublisherPrivate::PublishPoses(
 
   // publish pose vector msg
   if (this->usePoseV)
-    _publisher.Publish(this->poseVMsg);
+  {
+    _publisher.Publish(*arenaPoseVMsg);
+    // Reset() drops the message but keeps the arena's initial block mapped,
+    // so subsequent allocations bump-allocate without going through the
+    // system allocator.
+    this->arena.Reset();
+  }
 }
 
 GZ_ADD_PLUGIN(PosePublisher,

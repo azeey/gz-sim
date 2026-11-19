@@ -17,9 +17,14 @@
 
 #include "Contact.hh"
 
+#include <google/protobuf/arena.h>
+
 #include <gz/msgs/contact.pb.h>
 #include <gz/msgs/contacts.pb.h>
 
+#include <chrono>
+#include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -62,14 +67,27 @@ class ContactSensor
   public: void AddContacts(const std::chrono::steady_clock::duration &_stamp,
                            const msgs::Contacts &_contacts);
 
-  /// \brief Publish sensor data over gz transport
-  public: void Publish();
+  /// \brief Publish the contacts gathered since the last publication over
+  /// gz transport, if any, when the update period has elapsed.
+  /// \param[in] _simTime Current simulation time
+  public: void Publish(const std::chrono::steady_clock::duration &_simTime);
 
   /// \brief Topic to publish data to
   public: std::string topic;
 
-  /// \brief Message to publish
-  public: msgs::Contacts contactsMsg;
+  /// \brief Arena for contact message allocation. Reset() is called after
+  /// each publish, retaining the arena's initial block for reuse.
+  public: google::protobuf::Arena arena;
+
+  /// \brief Message to publish (arena-owned). Reallocated on the arena
+  /// after every Reset().
+  public: msgs::Contacts *contactsMsg{
+#if GOOGLE_PROTOBUF_VERSION >= 4022000
+    google::protobuf::Arena::Create<msgs::Contacts>(&arena)
+#else
+    google::protobuf::Arena::CreateMessage<msgs::Contacts>(&arena)
+#endif
+  };
 
   /// \brief Gazebo transport node
   public: transport::Node node;
@@ -79,13 +97,25 @@ class ContactSensor
 
   /// \brief Entities for which this sensor publishes data
   public: std::vector<Entity> collisionEntities;
+
+  /// \brief Simulation time between two publications, from the sensor's
+  /// <update_rate>. Zero publishes at every iteration with contacts.
+  public: std::chrono::steady_clock::duration updatePeriod{0};
+
+  /// \brief Simulation time of the next publication, empty before the
+  /// first. It advances by whole update periods, so the average rate is the
+  /// update rate even when the period is not a multiple of the physics step.
+  public: std::optional<std::chrono::steady_clock::duration> nextPublishTime;
 };
 
 class gz::sim::systems::ContactPrivate
 {
   /// \brief Create sensors that correspond to entities in the simulation
   /// \param[in] _ecm Mutable reference to ECM.
-  public: void CreateSensors(EntityComponentManager &_ecm);
+  /// \param[in] _includeExisting True to scan existing contact sensor
+  /// components as well as newly-created ones.
+  public: void CreateSensors(EntityComponentManager &_ecm,
+              bool _includeExisting = false);
 
   /// \brief Update and publish sensor data
   /// \param[in] _ecm Immutable reference to ECM.
@@ -122,6 +152,20 @@ void ContactSensor::Load(const sdf::ElementPtr &_sdf, const std::string &_topic,
     this->topic = tmpTopic;
   }
 
+  const double updateRate = _sdf->Get<double>("update_rate", 0.0).first;
+  if (updateRate < 0.0)
+  {
+    gzwarn << "Contact sensor on [" << this->topic << "] has a negative "
+           << "<update_rate> [" << updateRate << "]; publishing at every "
+           << "iteration with contacts." << std::endl;
+  }
+  else if (updateRate > 0.0)
+  {
+    this->updatePeriod =
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(1.0 / updateRate));
+  }
+
   gzmsg << "Contact system publishing on " << this->topic << std::endl;
   this->pub = this->node.Advertise<msgs::Contacts>(this->topic);
 }
@@ -134,81 +178,132 @@ void ContactSensor::AddContacts(
   auto stamp = convert<msgs::Time>(_stamp);
   for (const auto &contact : _contacts.contact())
   {
-    auto *newContact = this->contactsMsg.add_contact();
+    auto *newContact = this->contactsMsg->add_contact();
     newContact->CopyFrom(contact);
     newContact->mutable_header()->mutable_stamp()->CopyFrom(stamp);
   }
-
-  this->contactsMsg.mutable_header()->mutable_stamp()->CopyFrom(stamp);
 }
 
 //////////////////////////////////////////////////
-void ContactSensor::Publish()
+void ContactSensor::Publish(
+    const std::chrono::steady_clock::duration &_simTime)
 {
-  // Only publish if there are contacts
-  if (this->contactsMsg.contact_size() > 0)
+  if (this->updatePeriod > std::chrono::steady_clock::duration::zero())
   {
-    this->pub.Publish(this->contactsMsg);
-    this->contactsMsg.Clear();
+    // A jump back in time (before the previous publication) restarts the
+    // schedule
+    if (this->nextPublishTime &&
+        _simTime < *this->nextPublishTime - this->updatePeriod)
+    {
+      this->nextPublishTime.reset();
+    }
+
+    // Keep gathering contacts until the next publication time
+    if (this->nextPublishTime && _simTime < *this->nextPublishTime)
+      return;
+
+    // Advance by whole periods; a step longer than the period publishes at
+    // every step instead of catching up with a burst
+    this->nextPublishTime =
+        this->nextPublishTime.value_or(_simTime) + this->updatePeriod;
+    if (*this->nextPublishTime <= _simTime)
+      this->nextPublishTime = _simTime + this->updatePeriod;
+  }
+
+  // Only publish if there are contacts
+  if (this->contactsMsg->contact_size() > 0)
+  {
+    // The publication time; each contact keeps the time of its iteration
+    this->contactsMsg->mutable_header()->mutable_stamp()->CopyFrom(
+        convert<msgs::Time>(_simTime));
+    this->pub.Publish(*this->contactsMsg);
+    // Reset (not Clear): Clear() walks the field tree, while arena.Reset()
+    // is O(1) and lets the next add_contact() bump-allocate fresh entries.
+    this->arena.Reset();
+#if GOOGLE_PROTOBUF_VERSION >= 4022000
+    this->contactsMsg =
+      google::protobuf::Arena::Create<msgs::Contacts>(&this->arena);
+#else
+    this->contactsMsg =
+      google::protobuf::Arena::CreateMessage<msgs::Contacts>(&this->arena);
+#endif
   }
 }
 
 //////////////////////////////////////////////////
-void ContactPrivate::CreateSensors(EntityComponentManager &_ecm)
+void ContactPrivate::CreateSensors(EntityComponentManager &_ecm,
+    bool _includeExisting)
 {
   GZ_PROFILE("ContactPrivate::CreateSensors");
-  _ecm.EachNew<components::ContactSensor>(
-      [&](const Entity &_entity,
-          const components::ContactSensor *_contact) -> bool
+
+  auto createSensor =
+    [&](const Entity &_entity,
+        const components::ContactSensor *_contact) -> bool
+    {
+      if (this->entitySensorMap.find(_entity) != this->entitySensorMap.end())
+        return true;
+
+      // Check if the parent entity is a link
+      auto *parentEntity = _ecm.Component<components::ParentEntity>(_entity);
+      if (nullptr == parentEntity)
+        return true;
+
+      auto *linkComp = _ecm.Component<components::Link>(parentEntity->Data());
+      if (nullptr == linkComp)
       {
-        // Check if the parent entity is a link
-        auto *parentEntity = _ecm.Component<components::ParentEntity>(_entity);
-        if (nullptr == parentEntity)
-          return true;
+        // Contact sensors should only be attached to links
+        return true;
+      }
 
-        auto *linkComp = _ecm.Component<components::Link>(parentEntity->Data());
-        if (nullptr == linkComp)
+      auto collisionElem =
+          _contact->Data()->GetElement("contact")->GetElement("collision");
+
+      std::vector<Entity> collisionEntities;
+      // Get all the collision elements
+      for (; collisionElem;
+           collisionElem = collisionElem->GetNextElement("collision"))
+      {
+        auto collisionName = collisionElem->Get<std::string>();
+        // Get collision entity that matches the name given by the sensor's
+        // configuration.
+        auto childEntities = _ecm.ChildrenByComponents(
+            parentEntity->Data(), components::Collision(),
+            components::Name(collisionName));
+
+        if (!childEntities.empty())
         {
-          // Contact sensors should only be attached to links
-          return true;
-        }
+          // We assume that if childEntities is not empty, it only has one
+          // element.
+          collisionEntities.push_back(childEntities.front());
 
-        auto collisionElem =
-            _contact->Data()->GetElement("contact")->GetElement("collision");
-
-        std::vector<Entity> collisionEntities;
-        // Get all the collision elements
-        for (; collisionElem;
-             collisionElem = collisionElem->GetNextElement("collision"))
-        {
-          auto collisionName = collisionElem->Get<std::string>();
-          // Get collision entity that matches the name given by the sensor's
-          // configuration.
-          auto childEntities = _ecm.ChildrenByComponents(
-              parentEntity->Data(), components::Collision(),
-              components::Name(collisionName));
-
-          if (!childEntities.empty())
+          // Create component to be filled by physics.
+          if (nullptr == _ecm.Component<components::ContactSensorData>(
+              childEntities.front()))
           {
-            // We assume that if childEntities is not empty, it only has one
-            // element.
-            collisionEntities.push_back(childEntities.front());
-
-            // Create component to be filled by physics.
             _ecm.CreateComponent(childEntities.front(),
                                  components::ContactSensorData());
           }
         }
+      }
 
-        std::string defaultTopic = scopedName(_entity, _ecm, "/") + "/contact";
+      std::string defaultTopic = scopedName(_entity, _ecm, "/") + "/contact";
 
-        auto sensor = std::make_unique<ContactSensor>();
-        sensor->Load(_contact->Data(), defaultTopic, collisionEntities);
-        this->entitySensorMap.insert(
-            std::make_pair(_entity, std::move(sensor)));
+      auto sensor = std::make_unique<ContactSensor>();
+      sensor->Load(_contact->Data(), defaultTopic, collisionEntities);
+      this->entitySensorMap.insert(
+          std::make_pair(_entity, std::move(sensor)));
 
-        return true;
-      });
+      return true;
+    };
+
+  if (_includeExisting)
+  {
+    _ecm.Each<components::ContactSensor>(createSensor);
+  }
+  else
+  {
+    _ecm.EachNew<components::ContactSensor>(createSensor);
+  }
 }
 
 //////////////////////////////////////////////////
@@ -287,16 +382,26 @@ void Contact::PostUpdate(const UpdateInfo &_info,
     for (auto &it : this->dataPtr->entitySensorMap)
     {
       // Publish sensor data
-      it.second->Publish();
+      it.second->Publish(_info.simTime);
     }
   }
 
   this->dataPtr->RemoveSensors(_ecm);
 }
 
+//////////////////////////////////////////////////
+void Contact::Reset(const UpdateInfo &, EntityComponentManager &_ecm)
+{
+  this->dataPtr->entitySensorMap.clear();
+  // After reset, existing sensor entities are not reported as new entities.
+  // Re-scan them so contact sensors keep publishing in the next episode.
+  this->dataPtr->CreateSensors(_ecm, true);
+}
+
 GZ_ADD_PLUGIN(Contact, System,
   Contact::ISystemPreUpdate,
-  Contact::ISystemPostUpdate
+  Contact::ISystemPostUpdate,
+  Contact::ISystemReset
 )
 
 GZ_ADD_PLUGIN_ALIAS(Contact, "gz::sim::systems::Contact")

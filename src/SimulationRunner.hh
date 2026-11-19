@@ -69,6 +69,9 @@ namespace gz
     inline namespace GZ_SIM_VERSION_NAMESPACE {
     // Forward declarations.
     class SimulationRunnerPrivate;
+#ifdef _WIN32
+    class SimulationRunnerWinHandleStorage;
+#endif
 
     class GZ_SIM_VISIBLE SimulationRunner
     {
@@ -168,6 +171,10 @@ namespace gz
       /// \return True if the server is running.
       public: bool Running() const;
 
+      /// \brief Get whether parallel PostUpdate is enabled.
+      /// \return True if parallel PostUpdate is enabled, false otherwise.
+      public: bool ParallelPostUpdates() const;
+
       /// \brief Get whether the runner has received a stop event
       /// \return True if the event has been received.
       public: bool StopReceived() const;
@@ -233,6 +240,10 @@ namespace gz
       /// \return Reference to the entity component manager.
       public: const EntityComponentManager &EntityCompMgr() const;
 
+      /// \brief Get a mutable reference to the EntityComponentManager.
+      /// \return Mutable reference to the entity component manager.
+      public: EntityComponentManager &EntityCompMgr();
+
       /// \brief Return an entity with the provided name.
       /// \details If multiple entities with the same name exist, the first
       /// entity found will be returned.
@@ -291,6 +302,12 @@ namespace gz
       /// \param[in] _step Step size.
       public: void SetStepSize(
           const std::chrono::steady_clock::duration &_step);
+
+      /// \brief Mark the runner as having exited with errors.
+      /// \details This is called by the Server when a critical error occurs
+      /// during initialization (e.g. invalid SDF). A runner in this state
+      /// will refuse to run simulation steps.
+      public: void SetExitedWithErrors();
 
       /// \brief World control service callback. This function stores the
       /// the request which will then be processed by the ProcessMessages
@@ -578,6 +595,18 @@ namespace gz
       /// \brief True to create entities.
       private: bool createEntities{false};
       private: bool entitiesCreated{false};
+
+      /// \brief Flag indicating if the server encountered errors during
+      /// initialization and should exit immediately. See
+      /// `SetExitedWithErrors()`.
+      private: bool exitedWithErrors{false};
+
+      /// \brief Whether parallel PostUpdate is enabled.
+      private: bool parallelPostUpdates{false};
+#ifdef _WIN32
+      private: std::unique_ptr<SimulationRunnerWinHandleStorage>
+        winPrecisionTimer;
+#endif
 
       friend class LevelManager;
     };

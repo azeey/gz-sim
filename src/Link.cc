@@ -28,8 +28,10 @@
 #include "gz/sim/components/CanonicalLink.hh"
 #include "gz/sim/components/Collision.hh"
 #include "gz/sim/components/ExternalWorldWrenchCmd.hh"
+#include "gz/sim/components/Gravity.hh"
 #include "gz/sim/components/Inertial.hh"
 #include "gz/sim/components/Joint.hh"
+#include "gz/sim/components/Kinematic.hh"
 #include "gz/sim/components/LinearAcceleration.hh"
 #include "gz/sim/components/LinearVelocity.hh"
 #include "gz/sim/components/LinearVelocityCmd.hh"
@@ -45,10 +47,10 @@
 
 #include "gz/sim/Link.hh"
 
-class gz::sim::LinkPrivate
+class gz::sim::Link::Implementation
 {
   /// \brief Id of link entity.
-  public: Entity id{kNullEntity};
+  public: sim::Entity id{kNullEntity};
 };
 
 using namespace gz;
@@ -56,32 +58,10 @@ using namespace sim;
 
 //////////////////////////////////////////////////
 Link::Link(sim::Entity _entity)
-  : dataPtr(std::make_unique<LinkPrivate>())
+  : dataPtr(utils::MakeImpl<Implementation>())
 {
   this->dataPtr->id = _entity;
 }
-
-/////////////////////////////////////////////////
-Link::Link(const Link &_link)
-  : dataPtr(std::make_unique<LinkPrivate>(*_link.dataPtr))
-{
-}
-
-/////////////////////////////////////////////////
-Link::Link(Link &&_link) noexcept = default;
-
-//////////////////////////////////////////////////
-Link::~Link() = default;
-
-/////////////////////////////////////////////////
-Link &Link::operator=(const Link &_link)
-{
-  *this->dataPtr = (*_link.dataPtr);
-  return *this;
-}
-
-/////////////////////////////////////////////////
-Link &Link::operator=(Link &&_link) noexcept = default;
 
 //////////////////////////////////////////////////
 Entity Link::Entity() const
@@ -151,25 +131,19 @@ Entity Link::VisualByName(const EntityComponentManager &_ecm,
 //////////////////////////////////////////////////
 std::vector<Entity> Link::Collisions(const EntityComponentManager &_ecm) const
 {
-  return _ecm.EntitiesByComponents(
-      components::ParentEntity(this->dataPtr->id),
-      components::Collision());
+  return _ecm.ChildrenByComponents(this->dataPtr->id, components::Collision());
 }
 
 //////////////////////////////////////////////////
 std::vector<Entity> Link::Sensors(const EntityComponentManager &_ecm) const
 {
-  return _ecm.EntitiesByComponents(
-      components::ParentEntity(this->dataPtr->id),
-      components::Sensor());
+  return _ecm.ChildrenByComponents(this->dataPtr->id, components::Sensor());
 }
 
 //////////////////////////////////////////////////
 std::vector<Entity> Link::Visuals(const EntityComponentManager &_ecm) const
 {
-  return _ecm.EntitiesByComponents(
-      components::ParentEntity(this->dataPtr->id),
-      components::Visual());
+  return _ecm.ChildrenByComponents(this->dataPtr->id, components::Visual());
 }
 
 //////////////////////////////////////////////////
@@ -205,6 +179,20 @@ bool Link::WindMode(const EntityComponentManager &_ecm) const
     return comp->Data();
 
   return false;
+}
+
+//////////////////////////////////////////////////
+std::optional<bool> Link::GravityEnabled(
+    const EntityComponentManager &_ecm) const
+{
+  return _ecm.ComponentData<components::GravityEnabled>(this->dataPtr->id);
+}
+
+//////////////////////////////////////////////////
+std::optional<bool> Link::Kinematic(
+    const EntityComponentManager &_ecm) const
+{
+  return _ecm.ComponentData<components::Kinematic>(this->dataPtr->id);
 }
 
 //////////////////////////////////////////////////
@@ -322,37 +310,61 @@ void Link::EnableVelocityChecks(EntityComponentManager &_ecm, bool _enable)
 void Link::SetLinearVelocity(EntityComponentManager &_ecm,
   const math::Vector3d &_vel) const
 {
-    auto vel =
-      _ecm.Component<components::LinearVelocityCmd>(this->dataPtr->id);
-
-    if (vel == nullptr)
-    {
-      _ecm.CreateComponent(
-          this->dataPtr->id,
-          components::LinearVelocityCmd(_vel));
-    }
-    else
-    {
-      vel->Data() = _vel;
-    }
+  _ecm.SetComponentData<components::LinearVelocityCmd>(
+      this->dataPtr->id, _vel);
 }
 
 //////////////////////////////////////////////////
 void Link::SetAngularVelocity(EntityComponentManager &_ecm,
   const math::Vector3d &_vel) const
 {
-    auto vel =
-      _ecm.Component<components::AngularVelocityCmd>(this->dataPtr->id);
+  _ecm.SetComponentData<components::AngularVelocityCmd>(
+      this->dataPtr->id, _vel);
+}
 
-    if (vel == nullptr)
+//////////////////////////////////////////////////
+void Link::SetGravityEnabled(EntityComponentManager &_ecm,
+  bool _enabled) const
+{
+    auto comp =
+      _ecm.Component<components::GravityEnabledCmd>(this->dataPtr->id);
+
+    if (comp == nullptr)
     {
       _ecm.CreateComponent(
           this->dataPtr->id,
-          components::AngularVelocityCmd(_vel));
+          components::GravityEnabledCmd(_enabled));
     }
     else
     {
-      vel->Data() = _vel;
+      comp->SetData(_enabled,
+          [](const bool &, const bool &){return false;});
+      _ecm.SetChanged(this->dataPtr->id,
+          components::GravityEnabledCmd::typeId,
+          ComponentState::OneTimeChange);
+    }
+}
+
+//////////////////////////////////////////////////
+void Link::SetKinematic(EntityComponentManager &_ecm,
+  bool _kinematic) const
+{
+    auto comp =
+      _ecm.Component<components::KinematicCmd>(this->dataPtr->id);
+
+    if (comp == nullptr)
+    {
+      _ecm.CreateComponent(
+          this->dataPtr->id,
+          components::KinematicCmd(_kinematic));
+    }
+    else
+    {
+      comp->SetData(_kinematic,
+          [](const bool &, const bool &){return false;});
+      _ecm.SetChanged(this->dataPtr->id,
+          components::KinematicCmd::typeId,
+          ComponentState::OneTimeChange);
     }
 }
 

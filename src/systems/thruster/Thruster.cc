@@ -472,11 +472,11 @@ void Thruster::Configure(
     {
       p = _sdf->Get<double>("p_gain");
     }
-    if (!_sdf->HasElement("i_gain"))
+    if (_sdf->HasElement("i_gain"))
     {
       i = _sdf->Get<double>("i_gain");
     }
-    if (!_sdf->HasElement("d_gain"))
+    if (_sdf->HasElement("d_gain"))
     {
       d = _sdf->Get<double>("d_gain");
     }
@@ -653,7 +653,7 @@ void Thruster::PreUpdate(
     this->dataPtr->batteryInitialized = true;
 
     // Check that a battery exists with the specified name
-    Entity batteryEntity;
+    Entity batteryEntity = kNullEntity;
     int numBatteriesWithName = 0;
     _ecm.Each<components::BatterySoC, components::Name>(
       [&](const Entity &_entity,

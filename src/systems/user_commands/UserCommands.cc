@@ -36,6 +36,8 @@
 #include <gz/msgs/entity.pb.h>
 #include <gz/msgs/entity_factory.pb.h>
 #include <gz/msgs/entity_factory_v.pb.h>
+#include <gz/msgs/entity_factory_with_ns.pb.h>
+#include <gz/msgs/entity_factory_with_ns_v.pb.h>
 #include <gz/msgs/light.pb.h>
 #include <gz/msgs/material_color.pb.h>
 #include <gz/msgs/physics.pb.h>
@@ -165,10 +167,22 @@ class CreateCommand : public UserCommandBase
   public: CreateCommand(msgs::EntityFactory *_msg,
       std::shared_ptr<UserCommandsInterface> &_iface);
 
+  /// \brief Constructor
+  /// \param[in] _msg Factory message.
+  /// \param[in] _iface Pointer to user commands interface with namespace.
+  public: CreateCommand(msgs::EntityFactoryWithNs *_msg,
+      std::shared_ptr<UserCommandsInterface> &_iface);
+
   /// \brief Constructor overload that takes a vector of Factory messages
   /// \param[in] _msg Vector of Factory message.
   /// \param[in] _iface Pointer to user commands interface.
   public: CreateCommand(msgs::EntityFactory_V *_msg,
+      std::shared_ptr<UserCommandsInterface> &_iface);
+
+  /// \brief Constructor overload that takes a vector of Factory messages
+  /// \param[in] _msg Vector of Factory message.
+  /// \param[in] _iface Pointer to user commands interface with namespace.
+  public: CreateCommand(msgs::EntityFactoryWithNs_V *_msg,
       std::shared_ptr<UserCommandsInterface> &_iface);
 
   // Documentation inherited
@@ -176,7 +190,13 @@ class CreateCommand : public UserCommandBase
 
   /// \brief Actual implementation that creates entities from message.
   /// \param[in] Factory message that specifies the entity to create.
-  private: bool CreateFromMsg(const msgs::EntityFactory &_createMsg);
+  /// \param[in] _ns Namespace to apply to the created entity.
+  private: bool CreateFromMsg(const msgs::EntityFactory &_createMsg,
+      const std::string &_ns);
+
+  /// \brief Actual implementation that creates entities from message.
+  /// \param[in] Factory message that specifies the entity to create.
+  private: bool CreateFromMsg(const msgs::EntityFactoryWithNs &_createMsg);
 };
 
 /// \brief Command to remove an entity from simulation.
@@ -546,8 +566,7 @@ bool UserCommandsInterface::HasContactSensor(const Entity _collision)
   }
 
   auto allLinkSensors =
-    ecm->EntitiesByComponents(components::Sensor(),
-      components::ParentEntity(*linkEntity));
+    ecm->ChildrenByComponents(linkEntity->Data(), components::Sensor());
 
   for (auto const &sensor : allLinkSensors)
   {
@@ -608,8 +627,12 @@ void UserCommands::Configure(const Entity &_entity,
   // Create service
   this->dataPtr->AdvertiseService<CreateCommand, msgs::EntityFactory>(
       "/world/" + validWorldName + "/create");
+  this->dataPtr->AdvertiseService<CreateCommand, msgs::EntityFactoryWithNs>(
+      "/world/" + validWorldName + "/create_with_ns");
   this->dataPtr->AdvertiseService<CreateCommand, msgs::EntityFactory_V>(
       "/world/" + validWorldName + "/create_multiple", "Create");
+  this->dataPtr->AdvertiseService<CreateCommand, msgs::EntityFactoryWithNs_V>(
+      "/world/" + validWorldName + "/create_with_ns_multiple", "Create");
 
   // Remove service
   this->dataPtr->AdvertiseService<RemoveCommand, msgs::Entity>(
@@ -822,32 +845,76 @@ CreateCommand::CreateCommand(msgs::EntityFactory *_msg,
 }
 
 //////////////////////////////////////////////////
+CreateCommand::CreateCommand(msgs::EntityFactoryWithNs *_msg,
+    std::shared_ptr<UserCommandsInterface> &_iface)
+    : UserCommandBase(_msg, _iface)
+{
+}
+
+//////////////////////////////////////////////////
 CreateCommand::CreateCommand(msgs::EntityFactory_V *_msg,
     std::shared_ptr<UserCommandsInterface> &_iface)
     : UserCommandBase(_msg, _iface)
 {
 }
+
+//////////////////////////////////////////////////
+CreateCommand::CreateCommand(msgs::EntityFactoryWithNs_V *_msg,
+    std::shared_ptr<UserCommandsInterface> &_iface)
+    : UserCommandBase(_msg, _iface)
+{
+}
+
 //////////////////////////////////////////////////
 bool CreateCommand::Execute()
 {
-  auto createMsg = dynamic_cast<const msgs::EntityFactory *>(this->msg);
+  auto createMsg =
+      gz::msgs::DoDynamicCastMessage<msgs::EntityFactory>(this->msg);
   if (nullptr != createMsg)
   {
-    return this->CreateFromMsg(*createMsg);
+    return this->CreateFromMsg(*createMsg, "");
   }
-  else
+
+  auto createMsgV =
+      gz::msgs::DoDynamicCastMessage<msgs::EntityFactory_V>(this->msg);
+  if (nullptr != createMsgV)
   {
     // It could also be an EntityFactory_V
-    auto createMsgV = dynamic_cast<const msgs::EntityFactory_V *>(this->msg);
-    if (nullptr != createMsgV)
+    bool result = true;
+    for (const auto &msgItem : createMsgV->data())
     {
-      bool result = true;
-      for (const auto &msgItem : createMsgV->data())
-      {
-        result = result && this->CreateFromMsg(msgItem);
-      }
-      return result;
+      result = result && this->CreateFromMsg(msgItem, "");
     }
+    return result;
+  }
+
+  auto createMsgWithNs =
+      gz::msgs::DoDynamicCastMessage<msgs::EntityFactoryWithNs>(this->msg);
+  if (nullptr != createMsgWithNs)
+  {
+    // It could also be an EntityFactoryWithNs
+    gzwarn << "The EntityFactoryWithNs message and /create_with_ns service "
+           << "are deprecated and will be removed in a future version. "
+           << "Please use EntityFactory and /create instead."
+           << std::endl;
+    return this->CreateFromMsg(*createMsgWithNs);
+  }
+
+  auto createMsgWithNsV =
+      gz::msgs::DoDynamicCastMessage<msgs::EntityFactoryWithNs_V>(this->msg);
+  if (nullptr != createMsgWithNsV)
+  {
+    // It could also be an EntityFactoryWithNs_V
+    gzwarn << "The EntityFactoryWithNs_V message and create_with_ns_multiple "
+           << "service are deprecated and will be removed in a future version."
+           << " Please use EntityFactory_V and /create_multiple instead."
+           << std::endl;
+    bool result = true;
+    for (const auto &msgItem : createMsgWithNsV->data())
+    {
+      result = result && this->CreateFromMsg(msgItem);
+    }
+    return result;
   }
 
   gzerr << "Internal error, null create message" << std::endl;
@@ -855,8 +922,20 @@ bool CreateCommand::Execute()
 }
 
 //////////////////////////////////////////////////
-bool CreateCommand::CreateFromMsg(const msgs::EntityFactory &_createMsg)
+bool CreateCommand::CreateFromMsg(const msgs::EntityFactory &_createMsg,
+  const std::string &_ns)
 {
+  // Load entity_namespace
+  std::string ns;
+  if (!_ns.empty())
+  {
+    ns = _ns;
+  }
+  else
+  {
+    ns = _createMsg.entity_namespace();
+  }
+
   // Load SDF
   sdf::Root root;
   sdf::Light lightSdf;
@@ -901,7 +980,8 @@ bool CreateCommand::CreateFromMsg(const msgs::EntityFactory &_createMsg)
         {
           auto parentEntity = parentComp->Data();
           clonedEntity = this->iface->ecm->Clone(entityToClone,
-              parentEntity, _createMsg.name(), _createMsg.allow_renaming());
+              parentEntity, _createMsg.name(),
+              _createMsg.allow_renaming(), ns);
           validClone = kNullEntity != clonedEntity;
         }
       }
@@ -1026,7 +1106,11 @@ bool CreateCommand::CreateFromMsg(const msgs::EntityFactory &_createMsg)
   {
     auto model = *root.Model();
     model.SetName(desiredName);
-    entity = this->iface->creator->CreateEntities(&model);
+    if (!ns.empty())
+    {
+      model.SetRawNamespace(ns);
+    }
+    entity = this->iface->creator->CreateEntitiesWithoutLoadingPlugins(&model);
   }
   else if (isLight && isRoot)
   {
@@ -1047,6 +1131,12 @@ bool CreateCommand::CreateFromMsg(const msgs::EntityFactory &_createMsg)
   }
 
   this->iface->creator->SetParent(entity, this->iface->worldEntity);
+
+  // Load model plugins after the world parent is set.
+  // This is so that the world entity is available to the plugins
+  // e.g. Utils' scopedName function can generate scoped names with
+  // world prefix.
+  this->iface->creator->LoadModelPlugins();
 
   // Pose
   std::optional<math::Pose3d> createPose;
@@ -1112,6 +1202,19 @@ bool CreateCommand::CreateFromMsg(const msgs::EntityFactory &_createMsg)
 }
 
 //////////////////////////////////////////////////
+bool CreateCommand::CreateFromMsg(const msgs::EntityFactoryWithNs &_createMsg)
+{
+  msgs::EntityFactory baseMsg;
+  if (!baseMsg.ParseFromString(_createMsg.SerializeAsString()))
+  {
+    gzerr << "Failed to parse EntityFactoryWithNs message" << std::endl;
+    return false;
+  }
+
+  return this->CreateFromMsg(baseMsg, _createMsg.entity_namespace());
+}
+
+//////////////////////////////////////////////////
 RemoveCommand::RemoveCommand(msgs::Entity *_msg,
     std::shared_ptr<UserCommandsInterface> &_iface)
     : UserCommandBase(_msg, _iface)
@@ -1121,7 +1224,7 @@ RemoveCommand::RemoveCommand(msgs::Entity *_msg,
 //////////////////////////////////////////////////
 bool RemoveCommand::Execute()
 {
-  auto removeMsg = dynamic_cast<const msgs::Entity *>(this->msg);
+  auto removeMsg = gz::msgs::DoDynamicCastMessage<msgs::Entity>(this->msg);
   if (nullptr == removeMsg)
   {
     gzerr << "Internal error, null remove message" << std::endl;
@@ -1170,7 +1273,7 @@ LightCommand::LightCommand(msgs::Light *_msg,
 //////////////////////////////////////////////////
 bool LightCommand::Execute()
 {
-  auto lightMsg = dynamic_cast<msgs::Light *>(this->msg);
+  auto lightMsg = gz::msgs::DoDynamicCastMessage<msgs::Light>(this->msg);
   if (nullptr == lightMsg)
   {
     gzerr << "Internal error, null light message" << std::endl;
@@ -1364,7 +1467,7 @@ PoseCommand::PoseCommand(msgs::Pose *_msg,
 //////////////////////////////////////////////////
 bool PoseCommand::Execute()
 {
-  auto poseMsg = dynamic_cast<const msgs::Pose *>(this->msg);
+  auto poseMsg = gz::msgs::DoDynamicCastMessage<msgs::Pose>(this->msg);
   if (nullptr == poseMsg)
   {
     gzerr << "Internal error, null create message" << std::endl;
@@ -1384,7 +1487,7 @@ PoseVectorCommand::PoseVectorCommand(msgs::Pose_V *_msg,
 //////////////////////////////////////////////////
 bool PoseVectorCommand::Execute()
 {
-  auto poseVectorMsg = dynamic_cast<const msgs::Pose_V *>(this->msg);
+  auto poseVectorMsg = gz::msgs::DoDynamicCastMessage<msgs::Pose_V>(this->msg);
   if (nullptr == poseVectorMsg)
   {
     gzerr << "Internal error, null create message" << std::endl;
@@ -1412,7 +1515,7 @@ PhysicsCommand::PhysicsCommand(msgs::Physics *_msg,
 //////////////////////////////////////////////////
 bool PhysicsCommand::Execute()
 {
-  auto physicsMsg = dynamic_cast<const msgs::Physics *>(this->msg);
+  auto physicsMsg = gz::msgs::DoDynamicCastMessage<msgs::Physics>(this->msg);
   if (nullptr == physicsMsg)
   {
     gzerr << "Internal error, null physics message" << std::endl;
@@ -1448,7 +1551,7 @@ SphericalCoordinatesCommand::SphericalCoordinatesCommand(
 bool SphericalCoordinatesCommand::Execute()
 {
   auto sphericalCoordinatesMsg =
-      dynamic_cast<const msgs::SphericalCoordinates *>(this->msg);
+      gz::msgs::DoDynamicCastMessage<msgs::SphericalCoordinates>(this->msg);
   if (nullptr == sphericalCoordinatesMsg)
   {
     gzerr << "Internal error, null SphericalCoordinates message" << std::endl;
@@ -1531,7 +1634,7 @@ EnableCollisionCommand::EnableCollisionCommand(msgs::Entity *_msg,
 //////////////////////////////////////////////////
 bool EnableCollisionCommand::Execute()
 {
-  auto entityMsg = dynamic_cast<const msgs::Entity *>(this->msg);
+  auto entityMsg = gz::msgs::DoDynamicCastMessage<msgs::Entity>(this->msg);
   if (nullptr == entityMsg)
   {
     gzerr << "Internal error, null create message" << std::endl;
@@ -1581,7 +1684,7 @@ DisableCollisionCommand::DisableCollisionCommand(msgs::Entity *_msg,
 //////////////////////////////////////////////////
 bool DisableCollisionCommand::Execute()
 {
-  auto entityMsg = dynamic_cast<const msgs::Entity *>(this->msg);
+  auto entityMsg = gz::msgs::DoDynamicCastMessage<msgs::Entity>(this->msg);
   if (nullptr == entityMsg)
   {
     gzerr << "Internal error, null create message" << std::endl;
@@ -1640,8 +1743,9 @@ VisualCommand::VisualCommand(msgs::MaterialColor *_msg,
 //////////////////////////////////////////////////
 bool VisualCommand::Execute()
 {
-  auto visualMsg = dynamic_cast<const msgs::Visual *>(this->msg);
-  auto materialColorMsg = dynamic_cast<const msgs::MaterialColor *>(this->msg);
+  auto visualMsg = gz::msgs::DoDynamicCastMessage<msgs::Visual>(this->msg);
+  auto materialColorMsg =
+      gz::msgs::DoDynamicCastMessage<msgs::MaterialColor>(this->msg);
   if (visualMsg != nullptr)
   {
     Entity visualEntity = kNullEntity;
@@ -1766,8 +1870,8 @@ WheelSlipCommand::WheelSlipCommand(msgs::WheelSlipParametersCmd *_msg,
 //////////////////////////////////////////////////
 bool WheelSlipCommand::Execute()
 {
-  auto wheelSlipMsg = dynamic_cast<const msgs::WheelSlipParametersCmd *>(
-      this->msg);
+  auto wheelSlipMsg =
+      gz::msgs::DoDynamicCastMessage<msgs::WheelSlipParametersCmd>(this->msg);
   if (nullptr == wheelSlipMsg)
   {
     gzerr << "Internal error, null wheel slip message" << std::endl;

@@ -19,9 +19,12 @@
 
 #include <algorithm>
 #include <iostream>
+#include <iterator>
+#include <map>
 #include <mutex>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <gz/common/Console.hh>
@@ -184,11 +187,17 @@ void TreeModel::AddEntity(Entity _entity, const QString &_entityName,
         return _entityInfo.parentEntity != _entity;
       });
 
-  for (auto it = sep; it != this->pendingEntities.end(); ++it)
+  if (sep != this->pendingEntities.end())
   {
-    this->AddEntity(it->entity, it->name, it->parentEntity, it->type);
+    const std::vector<EntityInfo> children(std::make_move_iterator(sep),
+        std::make_move_iterator(this->pendingEntities.end()));
+    this->pendingEntities.erase(sep, this->pendingEntities.end());
+
+    for (const auto &child : children)
+    {
+      this->AddEntity(child.entity, child.name, child.parentEntity, child.type);
+    }
   }
-  this->pendingEntities.erase(sep, this->pendingEntities.end());
 }
 
 /////////////////////////////////////////////////
@@ -325,6 +334,7 @@ void EntityTree::Update(const UpdateInfo &, EntityComponentManager &_ecm)
   // Treat all pre-existent entities as new at startup
   if (!this->dataPtr->initialized)
   {
+    std::map<Entity, std::tuple<QString, Entity>> entities;
     _ecm.Each<components::Name>(
       [&](const Entity &_entity,
           const components::Name *_name)->bool
@@ -347,6 +357,15 @@ void EntityTree::Update(const UpdateInfo &, EntityComponentManager &_ecm)
         parentEntity = parentComp->Data();
       }
 
+      entities.insert({_entity,
+          {QString::fromStdString(_name->Data()), parentEntity}});
+      return true;
+    });
+
+    for (auto &[_entity, data] : entities)
+    {
+      auto &[name, parentEntity] = data;
+
       // World children are top-level
       if (this->dataPtr->worldEntity != kNullEntity &&
           parentEntity == this->dataPtr->worldEntity)
@@ -357,11 +376,10 @@ void EntityTree::Update(const UpdateInfo &, EntityComponentManager &_ecm)
       QMetaObject::invokeMethod(&this->dataPtr->treeModel, "AddEntity",
           Qt::QueuedConnection,
           Q_ARG(Entity, _entity),
-          Q_ARG(QString, QString::fromStdString(_name->Data())),
+          Q_ARG(QString, name),
           Q_ARG(Entity, parentEntity),
           Q_ARG(QString, entityType(_entity, _ecm)));
-      return true;
-    });
+    }
 
     if (this->dataPtr->worldEntity != kNullEntity)
       this->dataPtr->initialized = true;

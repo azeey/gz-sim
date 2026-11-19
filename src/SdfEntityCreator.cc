@@ -46,6 +46,7 @@
 #include "gz/sim/components/DepthCamera.hh"
 #include "gz/sim/components/ForceTorque.hh"
 #include "gz/sim/components/Geometry.hh"
+#include "gz/sim/components/CpuLidar.hh"
 #include "gz/sim/components/GpuLidar.hh"
 #include "gz/sim/components/Gravity.hh"
 #include "gz/sim/components/Imu.hh"
@@ -53,6 +54,7 @@
 #include "gz/sim/components/Joint.hh"
 #include "gz/sim/components/JointAxis.hh"
 #include "gz/sim/components/JointType.hh"
+#include "gz/sim/components/Kinematic.hh"
 #include "gz/sim/components/LaserRetro.hh"
 #include "gz/sim/components/Level.hh"
 #include "gz/sim/components/LevelEntityNames.hh"
@@ -69,6 +71,7 @@
 #include "gz/sim/components/Material.hh"
 #include "gz/sim/components/Model.hh"
 #include "gz/sim/components/Name.hh"
+#include "gz/sim/components/Namespace.hh"
 #include "gz/sim/components/NavSat.hh"
 #include "gz/sim/components/ParentEntity.hh"
 #include "gz/sim/components/ParentLinkName.hh"
@@ -332,7 +335,7 @@ void SdfEntityCreator::CreateEntities(const sdf::World *_world,
         levelEntityNames.find(model->Name()) != levelEntityNames.end())
 
     {
-      Entity modelEntity = this->CreateEntities(model, false);
+      Entity modelEntity = this->CreateEntitiesWithoutLoadingPlugins(model);
 
       this->SetParent(modelEntity, _worldEntity);
     }
@@ -470,12 +473,22 @@ Entity SdfEntityCreator::CreateEntities(const sdf::Model *_model)
 {
   GZ_PROFILE("SdfEntityCreator::CreateEntities(sdf::Model)");
 
-  auto ent = this->CreateEntities(_model, false);
+  auto ent = this->CreateEntitiesWithoutLoadingPlugins(_model);
 
   // Load all model plugins afterwards, so we get scoped name for nested models.
   this->LoadModelPlugins();
 
   return ent;
+}
+
+//////////////////////////////////////////////////
+Entity SdfEntityCreator::CreateEntitiesWithoutLoadingPlugins(
+    const sdf::Model *_model)
+{
+  GZ_PROFILE(
+      "SdfEntityCreator::CreateEntitiesWithoutLoadingPlugins(sdf::Model)");
+
+  return this->CreateEntities(_model, false);
 }
 
 //////////////////////////////////////////////////
@@ -515,6 +528,12 @@ Entity SdfEntityCreator::CreateEntities(const sdf::Model *_model,
       components::Pose(ResolveSdfPose(_model->SemanticPose())));
   this->dataPtr->ecm->CreateComponent(modelEntity,
       components::Name(_model->Name()));
+  const auto ns = _model->Namespace();
+  if (ns.has_value() && !ns->empty())
+  {
+    this->dataPtr->ecm->CreateComponent(modelEntity,
+        components::Namespace(ns.value()));
+  }
   bool isStatic = _model->Static() || _staticParent;
   this->dataPtr->ecm->CreateComponent(modelEntity,
       components::Static(isStatic));
@@ -719,6 +738,15 @@ Entity SdfEntityCreator::CreateEntities(const sdf::Link *_link)
     // If disable gravity, create a GravityEnabled component to the entity
     this->dataPtr->ecm->CreateComponent(
         linkEntity, components::GravityEnabled(false));
+  }
+
+  // The kinematic state of a link that does not set <kinematic> depends on
+  // the <kinematic><enabled> parameter of the Physics system, so only create
+  // the component when the SDF sets it explicitly.
+  if (_link->Element() && _link->Element()->HasElement("kinematic"))
+  {
+    this->dataPtr->ecm->CreateComponent(
+        linkEntity, components::Kinematic(_link->Kinematic()));
   }
 
   // Visuals
@@ -1125,11 +1153,11 @@ Entity SdfEntityCreator::CreateEntities(const sdf::Sensor *_sensor)
   }
   else if (_sensor->Type() == sdf::SensorType::LIDAR)
   {
-    // \todo(anyone) Implement CPU-based lidar
-    // this->dataPtr->ecm->CreateComponent(sensorEntity,
-    //     components::Lidar(*_sensor));
-    gzwarn << "Sensor type LIDAR not supported yet. Try using"
-      << "a GPU LIDAR instead." << std::endl;
+    this->dataPtr->ecm->CreateComponent(sensorEntity,
+        components::CpuLidar(*_sensor));
+
+    this->dataPtr->ecm->CreateComponent(sensorEntity,
+        components::WorldPose(math::Pose3d::Zero));
   }
   else if (_sensor->Type() == sdf::SensorType::DEPTH_CAMERA)
   {
@@ -1281,8 +1309,7 @@ void SdfEntityCreator::RequestRemoveEntity(Entity _entity, bool _recursive)
         components::ParentEntity(_entity));
     for (const auto childEntity : childEntities)
     {
-      this->dataPtr->ecm->RemoveComponent<components::ParentEntity>(
-          childEntity);
+      this->dataPtr->ecm->SetParentEntity(childEntity, kNullEntity);
     }
   }
 
@@ -1295,6 +1322,4 @@ void SdfEntityCreator::SetParent(Entity _child, Entity _parent)
   // TODO(louise) Figure out a way to avoid duplication while keeping all
   // state in components and also keeping a convenient graph in the ECM
   this->dataPtr->ecm->SetParentEntity(_child, _parent);
-  this->dataPtr->ecm->CreateComponent(_child,
-      components::ParentEntity(_parent));
 }

@@ -17,9 +17,11 @@ set(tests
   collada_world_exporter.cc
   components.cc
   contact_system.cc
+  cpu_lidar_system.cc
   detachable_joint.cc
   diff_drive_system.cc
   drive_to_pose_controller_system.cc
+  dynamic_detachable_joint.cc
   each_new_removed.cc
   entity_erase.cc
   entity_system.cc
@@ -41,10 +43,12 @@ set(tests
   joint_position_controller_system.cc
   joint_state_publisher_system.cc
   joint_trajectory_controller_system.cc
+  kinematic_links.cc
   kinetic_energy_monitor_system.cc
   lift_drag_system.cc
   level_manager.cc
   level_manager_runtime_performers.cc
+  legacy_default_plugins.cc
   light.cc
   lighter_than_air_dynamics.cc
   link.cc
@@ -59,6 +63,7 @@ set(tests
   model.cc
   model_photo_shoot_default_joints.cc
   model_photo_shoot_random_joints.cc
+  model_photo_shoot_reset.cc
   multicopter.cc
   multiple_servers.cc
   navsat_system.cc
@@ -83,7 +88,9 @@ set(tests
   sdf_include.cc
   sensor.cc
   spherical_coordinates.cc
+  swerve_drive_system.cc
   thruster.cc
+  timeline_publisher.cc
   touch_plugin.cc
   tracked_vehicle_system.cc
   triggered_publisher.cc
@@ -95,6 +102,10 @@ set(tests
   world.cc
   world_control_state.cc
 )
+
+if (libwebsockets_FOUND)
+  list(APPEND tests websocket_server.cc)
+endif()
 
 # elevator system causes compile errors on windows
 if (NOT WIN32)
@@ -120,6 +131,7 @@ set(tests_needing_display
   optical_tactile_plugin.cc
   reset_sensors.cc
   rgbd_camera.cc
+  scene_manager.cc
   sensors_system.cc
   sensors_system_battery.cc
   sensors_system_update_rate.cc
@@ -215,9 +227,43 @@ if (TARGET INTEGRATION_model_photo_shoot_random_joints)
   )
 endif()
 
+if (TARGET INTEGRATION_model_photo_shoot_reset)
+  target_link_libraries(INTEGRATION_model_photo_shoot_reset
+    gz-rendering::gz-rendering
+  )
+endif()
+
 if (TARGET INTEGRATION_log_system)
   target_link_libraries(INTEGRATION_log_system
     gz-transport::log
+  )
+endif()
+
+# The websocket_server security regression tests exercise WebsocketServer's
+# private OnAsset() and the nested Connection type via a friend declaration.
+# gz-cmake builds the production shared library with visibility=hidden, so
+# linking against libgz-sim-websocket-server-system.so does not expose
+# those symbols. We instead recompile WebsocketServer.cc directly into the
+# test executable and add the same third-party libraries the plugin links
+# against so that private symbols are accessible.
+if (TARGET INTEGRATION_websocket_server)
+  target_sources(INTEGRATION_websocket_server PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/systems/websocket_server/WebsocketServer.cc
+  )
+  target_include_directories(INTEGRATION_websocket_server PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/systems/websocket_server
+  )
+  target_compile_definitions(INTEGRATION_websocket_server PRIVATE
+    BUILD_TESTING
+  )
+  target_link_libraries(INTEGRATION_websocket_server
+    websockets_shared
+    gz-common::gz-common
+    gz-common::graphics
+    gz-fuel_tools::gz-fuel_tools
+    gz-msgs::core
+    gz-plugin::core
+    gz-transport::core
   )
 endif()
 
@@ -252,7 +298,9 @@ if(VALID_DISPLAY AND VALID_DRI_DISPLAY AND TARGET INTEGRATION_sensors_system)
 endif()
 
 if (TARGET INTEGRATION_python_system_loader)
-  set_property(TEST INTEGRATION_python_system_loader  APPEND PROPERTY ENVIRONMENT "PYTHONPATH=${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/python/:$ENV{PYTHONPATH}")
+  set_property(TEST INTEGRATION_python_system_loader APPEND PROPERTY
+    ENVIRONMENT_MODIFICATION
+    "PYTHONPATH=path_list_prepend:${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/python")
 endif()
 
 if (TARGET INTEGRATION_load_system_static_registry)

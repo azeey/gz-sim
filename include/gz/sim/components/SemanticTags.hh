@@ -48,7 +48,8 @@ class SemanticTagsSerializer
     {
       msg.add_data(tag);
     }
-    msg.SerializeToOstream(&_out);
+    auto result = msg.SerializeToOstream(&_out);
+    (void)result;
     return _out;
   }
 
@@ -57,7 +58,10 @@ class SemanticTagsSerializer
                                    std::vector<std::string> &_tags)
   {
     msgs::StringMsg_V msg;
-    msg.ParsePartialFromIstream(&_in);
+    if(!msg.ParsePartialFromIstream(&_in))
+    {
+      return _in;
+    }
     _tags.clear();
     for (const auto &item : msg.data())
     {
@@ -77,7 +81,7 @@ namespace components
 /// https://github.com/ros-simulation/simulation_interfaces/blob/1.0.0/msg/TagsFilter.msg
 using SemanticTags = Component<std::vector<std::string>, class SemanticTagsTag,
                               serializers::SemanticTagsSerializer>;
-GZ_SIM_REGISTER_COMPONENT("gz_sim_components.SemanticTags", SemanticTags)
+GZ_SIM_DECLARE_COMPONENT("gz_sim_components.SemanticTags", SemanticTags)
 }  // namespace components
 }  // namespace GZ_SIM_VERSION_NAMESPACE
 }  // namespace sim

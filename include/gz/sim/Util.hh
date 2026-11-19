@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -28,6 +29,7 @@
 #include <gz/math/AxisAlignedBox.hh>
 #include <gz/math/Pose3.hh>
 #include <sdf/Mesh.hh>
+#include <sdf/config.hh>
 
 #include "gz/sim/components/Environment.hh"
 #include "gz/sim/config.hh"
@@ -36,11 +38,36 @@
 #include "gz/sim/Export.hh"
 #include "gz/sim/Types.hh"
 
+namespace sdf
+{
+  inline namespace SDF_VERSION_NAMESPACE
+  {
+    class Element;
+  }
+}
 
 namespace gz
 {
   namespace sim
   {
+    /// \brief Options for resolving a topic name
+    struct TopicNameOptions
+    {
+      /// \brief Name of the SDF child element containing the
+      /// topic name
+      std::string sdfElementName;
+
+      /// \brief Topic namespace to prepend to relative topic name
+      std::string topicNamespace;
+
+      /// \brief Default topic prefix to use when no topic namespace is
+      /// specified
+      std::string defaultTopicPrefix;
+
+      /// \brief Topic to use when no custom topic is specified
+      std::string defaultTopicSuffix;
+    };
+
     // Inline bracket to help doxygen filtering.
     inline namespace GZ_SIM_VERSION_NAMESPACE {
     //
@@ -67,6 +94,27 @@ namespace gz
     std::string GZ_SIM_VISIBLE scopedName(const Entity &_entity,
       const EntityComponentManager &_ecm, const std::string &_delim = "/",
       bool _includePrefix = true);
+
+    /// \brief Helper function to generate the full scoped namespace of an
+    /// entity by searching parent entities. The search stops when an absolute
+    /// namespace (starting with '/') is found.
+    /// \param[in] _ecm Immutable reference to ECM.
+    /// \param[in] _entity Entity to get the scoped namespace for.
+    /// \return Scoped namespace, or empty string if no namespace is found.
+    std::string GZ_SIM_VISIBLE scopedNamespace(
+        const EntityComponentManager &_ecm, const Entity &_entity);
+
+    /// \brief Helper function to resolve a topic name from the SDF element.
+    /// If the SDF element exists and contains a non-empty topic name, that
+    /// topic is preferred. Relative topic names are prefixed with the provided
+    /// namespace, while absolute topic names are left unchanged. If no custom
+    /// topic is available, the default topic is used.
+    /// \param[in] _sdf SDF to read the topic name from.
+    /// \param[in] _options Options specifying the SDF element name, topic
+    /// namespace, and default topic.
+    std::string GZ_SIM_VISIBLE resolvedTopicName(
+        const std::shared_ptr<const sdf::Element> &_sdf,
+        const TopicNameOptions &_options);
 
     /// \brief Helper function to get an entity given its scoped name.
     /// The scope may start at any level by default. For example, in this
@@ -136,7 +184,29 @@ namespace gz
     /// \param[in] _entity Entity to get the type for.
     /// \param[in] _ecm Immutable reference to ECM.
     /// \return ID of entity's type-defining components.
-    std::string GZ_SIM_VISIBLE entityTypeStr(const Entity &_entity,
+    std::string_view GZ_SIM_VISIBLE entityTypeStrView(const Entity &_entity,
+        const EntityComponentManager &_ecm);
+
+    /// \brief Generally, each entity will be of some specific high-level type,
+    /// such as "world", "sensor", "collision", etc, and one type only.
+    ///
+    /// This function returns a lowercase string for each type. For example,
+    /// "light", "actor", etc.
+    ///
+    /// In case the entity isn't of any known type, this will return an empty
+    /// string.
+    ///
+    /// In case the entity has more than one type, only one of them will be
+    /// returned. This is not standard usage.
+    ///
+    /// Note that this is different from component type names.
+    ///
+    /// \param[in] _entity Entity to get the type for.
+    /// \param[in] _ecm Immutable reference to ECM.
+    /// \return Lowercase string of entity's type-defining components.
+    /// \deprecated Use entityTypeStrView instead to reduce memory allocations.
+    std::string GZ_SIM_VISIBLE GZ_DEPRECATED(11) entityTypeStr(
+        const Entity &_entity,
         const EntityComponentManager &_ecm);
 
     /// \brief Get the world to which the given entity belongs.
@@ -159,6 +229,20 @@ namespace gz
     /// \return A new string with the parent scope removed.
     std::string GZ_SIM_VISIBLE removeParentScope(
         const std::string &_name, const std::string &_delim);
+
+    /// \brief Normalize deprecated ignition plugin identifiers in a plugin
+    /// name to gz equivalents.
+    /// \param[in] _name Plugin name to normalize.
+    /// \return Normalized plugin name.
+    std::string GZ_SIM_VISIBLE normalizePluginName(
+      const std::string &_name);
+
+    /// \brief Normalize deprecated ignition plugin identifiers in a plugin
+    /// filename to gz equivalents.
+    /// \param[in] _filename Plugin filename to normalize.
+    /// \return Normalized plugin filename.
+    std::string GZ_SIM_VISIBLE normalizePluginFilename(
+      const std::string &_filename);
 
     /// \brief Combine a URI and a file path into a full path.
     /// If the URI is already a full path or contains a scheme, it won't be
@@ -230,7 +314,7 @@ namespace gz
     /// full system file path.
     /// The provided SDF filename may be a Fuel URI, relative path, name
     /// of an installed Gazebo world filename, or an absolute path.
-    /// \param[in] _sdfFile An SDF world filename such as:
+    /// \param[in] _sdfFilename An SDF world filename such as:
     ///    1. "shapes.sdf" - This is referencing an installed world file.
     ///    2. "../shapes.sdf" - This is referencing a relative world file.
     ///    3. "/home/user/shapes.sdf" - This is reference an absolute world
@@ -337,7 +421,7 @@ namespace gz
       const math::Pose3d & _pose);
 
     /// \brief Compute the axis-aligned bounding box of a mesh.
-    /// \param _sdfMesh Mesh SDF DOM.
+    /// \param[in] _sdfMesh Mesh SDF DOM.
     /// \return The AABB of the mesh in its local frame.
     GZ_SIM_VISIBLE std::optional<math::AxisAlignedBox> meshAxisAlignedBox(
       const sdf::Mesh &_sdfMesh);
@@ -347,7 +431,7 @@ namespace gz
     GZ_SIM_VISIBLE const std::string &staticPluginPrefixStr();
 
     /// \brief Check if input filename of a library is a static plugin or not.
-    /// \param _filename_ Library filename to check
+    /// \param[in] _filename Library filename to check
     /// \return True if input filename has a static plugin string format.
     GZ_SIM_VISIBLE bool isStaticPlugin(const std::string &_filename);
 

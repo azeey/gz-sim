@@ -21,6 +21,7 @@
 
 #include <gz/sim/components/Factory.hh>
 #include <gz/sim/components/Component.hh>
+#include <gz/sim/components/Serialization.hh>
 #include <gz/sim/config.hh>
 
 namespace gz
@@ -35,8 +36,9 @@ namespace components
   /// in SI units (Nm for revolute, N for prismatic). The component wraps a
   /// std::vector and systems that set this component need to ensure that the
   /// vector has the same size as the degrees of freedom of the joint.
-  using JointForceCmd = Component<std::vector<double>, class JointForceCmdTag>;
-  GZ_SIM_REGISTER_COMPONENT("gz_sim_components.JointForceCmd",
+  using JointForceCmd = Component<std::vector<double>, class JointForceCmdTag,
+                                  serializers::VectorDoubleSerializer>;
+  GZ_SIM_DECLARE_COMPONENT("gz_sim_components.JointForceCmd",
                                 JointForceCmd)
 }
 }
