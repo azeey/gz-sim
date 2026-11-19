@@ -36,6 +36,7 @@
 
 #include <gz/common/Animation.hh>
 #include <gz/common/Console.hh>
+#include <gz/common/Filesystem.hh>
 #include <gz/common/geospatial/HeightmapData.hh>
 #include <gz/common/geospatial/HeightmapUtil.hh>
 #include <gz/common/KeyFrame.hh>
@@ -43,6 +44,7 @@
 #include <gz/common/Skeleton.hh>
 #include <gz/common/SkeletonAnimation.hh>
 #include <gz/common/StringUtils.hh>
+#include <gz/common/Util.hh>
 #include <gz/common/Uuid.hh>
 
 #include <gz/math/Color.hh>
@@ -68,6 +70,7 @@
 #include <gz/rendering/Material.hh>
 #include <gz/rendering/ParticleEmitter.hh>
 #include <gz/rendering/Projector.hh>
+#include <gz/rendering/RenderEngine.hh>
 #include <gz/rendering/Scene.hh>
 #include <gz/rendering/Visual.hh>
 #include <gz/rendering/WireBox.hh>
@@ -709,24 +712,47 @@ rendering::GeometryPtr SceneManager::LoadGeometry(const sdf::Geometry &_geom,
   }
   else if (_geom.Type() == sdf::GeometryType::MESH)
   {
+    const auto &meshShape = *_geom.MeshShape();
+    const bool isNameScheme =
+        common::URI(meshShape.Uri()).Scheme() == "name";
+    const std::string meshUri = isNameScheme ?
+        common::basename(meshShape.Uri()) :
+        asFullPath(meshShape.Uri(), meshShape.FilePath());
+
     rendering::MeshDescriptor descriptor;
-    descriptor.mesh = loadMesh(*_geom.MeshShape());
-    if (!descriptor.mesh)
-      return geom;
-    std::string meshUri =
-        (common::URI(_geom.MeshShape()->Uri()).Scheme() == "name") ?
-         common::basename(_geom.MeshShape()->Uri()) :
-         asFullPath(_geom.MeshShape()->Uri(),
-                    _geom.MeshShape()->FilePath());
-    auto a =     asFullPath(_geom.MeshShape()->Uri(),
-                    _geom.MeshShape()->FilePath());
-
     descriptor.meshName = meshUri;
-    descriptor.subMeshName = _geom.MeshShape()->Submesh();
-    descriptor.centerSubMesh = _geom.MeshShape()->CenterSubmesh();
+    descriptor.subMeshName = meshShape.Submesh();
+    descriptor.centerSubMesh = meshShape.CenterSubmesh();
 
-    geom = this->dataPtr->scene->CreateMesh(descriptor);
-    scale = _geom.MeshShape()->Scale();
+    // Render engines with a native glTF/GLB loader (e.g. filament via gltfio)
+    // can load unoptimized .gltf/.glb files directly without first converting
+    // them through gz-common's AssimpLoader.
+    const auto *engine = this->dataPtr->scene->Engine();
+    const std::string lowUri = common::lowercase(meshUri);
+    const bool isGltf = common::EndsWith(lowUri, ".glb") ||
+        common::EndsWith(lowUri, ".gltf");
+    if (engine && engine->Name() == "filament" && !isNameScheme && isGltf &&
+        meshShape.Optimization() == sdf::MeshOptimization::NONE &&
+        meshShape.Submesh().empty() && !meshShape.CenterSubmesh())
+    {
+      const std::string resolvedPath = common::exists(meshUri) ?
+          meshUri : common::findFile(meshUri);
+      if (!resolvedPath.empty() && common::exists(resolvedPath))
+      {
+        descriptor.meshName = resolvedPath;
+        geom = this->dataPtr->scene->CreateMesh(descriptor);
+      }
+    }
+
+    if (!geom)
+    {
+      descriptor.mesh = loadMesh(meshShape);
+      if (!descriptor.mesh)
+        return geom;
+      descriptor.meshName = meshUri;
+      geom = this->dataPtr->scene->CreateMesh(descriptor);
+    }
+    scale = meshShape.Scale();
   }
   else if (_geom.Type() == sdf::GeometryType::HEIGHTMAP)
   {
