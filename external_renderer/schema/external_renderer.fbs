@@ -1,0 +1,206 @@
+// FlatBuffers contract for Gazebo <-> Bevy External Rendering Architecture
+// Extends gazebosim/design#10 with hybrid glTF + raw mesh streaming, lighting,
+// viewport input, quality toggles, and triple-buffered cross-process GPU swapchain.
+
+namespace ExternalRenderer;
+
+struct Vec2 { x: float; y: float; }
+struct Vec3 { x: float; y: float; z: float; }
+struct Quat { x: float; y: float; z: float; w: float; }
+struct Color { r: float; g: float; b: float; a: float; }
+struct Pose { pos: Vec3; rot: Quat; }
+
+enum TextureFormat : uint8 {
+  RGBA8_SRGB = 0,
+  RGBA8_UNORM = 1,
+}
+
+enum VisualKind : uint8 {
+  BOX = 0,
+  SPHERE = 1,
+  CYLINDER = 2,
+  CAPSULE = 3,
+  PLANE = 4,
+  STREAMED_MESH = 5,
+  GLTF_URI = 6,
+  CONE = 7,
+  ELLIPSOID = 8,
+}
+
+enum AlphaMode : uint8 {
+  OPAQUE = 0,
+  MASK = 1,
+  BLEND = 2,
+}
+
+enum LightType : uint8 {
+  DIRECTIONAL = 0,
+  POINT = 1,
+  SPOT = 2,
+}
+
+table WorldConfig {
+  ambient: Color;
+  background: Color;
+  has_sky: bool;
+  sky_intensity: float = 1.0;
+  has_camera_pose: bool;
+  camera_pose: Pose;
+  camera_hfov: float = 1.0472;
+  env_map_path: string;
+}
+
+table TextureData {
+  texture_id: uint64;
+  width: uint32;
+  height: uint32;
+  format: TextureFormat;
+  pixels: [ubyte];
+}
+
+table MeshData {
+  mesh_id: uint64;
+  vertices: [float];
+  normals: [float];
+  uvs: [float];
+  tangents: [float];
+  indices: [uint32];
+}
+
+table PbrMaterial {
+  base_color: Color;
+  emissive: Color;
+  metallic: float = 0.0;
+  roughness: float = 0.5;
+  alpha_cutoff: float = 0.5;
+  reflectance: float = 0.5;
+  base_color_tex: uint64 = 0;
+  normal_tex: uint64 = 0;
+  metallic_roughness_tex: uint64 = 0;
+  occlusion_tex: uint64 = 0;
+  emissive_tex: uint64 = 0;
+}
+
+table SpawnVisual {
+  visual_id: uint64;
+  parent_entity_id: uint64;
+  kind: VisualKind;
+  cast_shadows: bool = true;
+  double_sided: bool = false;
+  alpha_mode: AlphaMode = OPAQUE;
+  parent_pose: Pose;
+  local_pose: Pose;
+  params: [float];
+  mesh_id: uint64 = 0;
+  material: PbrMaterial;
+  uri: string;
+}
+
+table DespawnEntity {
+  entity_id: uint64;
+}
+
+table LightUpsert {
+  entity_id: uint64;
+  type: LightType;
+  cast_shadows: bool = true;
+  pose: Pose;
+  direction: Vec3;
+  color: Color;
+  intensity: float = 1.0;
+  range: float = 20.0;
+  inner_angle: float = 0.5;
+  outer_angle: float = 0.8;
+}
+
+struct TransformItem {
+  entity_id: uint64;
+  pose: Pose;
+}
+
+table TransformBatch {
+  sim_time: double;
+  transforms: [TransformItem];
+}
+
+table ClearWorld {}
+
+union SceneAction {
+  WorldConfig,
+  TextureData,
+  MeshData,
+  SpawnVisual,
+  DespawnEntity,
+  LightUpsert,
+  TransformBatch,
+  ClearWorld,
+}
+
+table ScenePacket {
+  action: SceneAction;
+}
+
+enum RendererBackend : uint8 {
+  BEVY = 0,
+  BLENDER = 1,
+}
+
+enum InputKind : uint8 {
+  MOUSE_DOWN = 0,
+  MOUSE_UP = 1,
+  MOUSE_MOVE = 2,
+  WHEEL = 3,
+  KEY_DOWN = 4,
+  KEY_UP = 5,
+  RESIZE = 6,
+  SET_CAMERA_POSE = 7,
+  QUALITY_CONFIG = 8,
+  SAVE_SCREENSHOT = 9,
+  RESET_CAMERA = 10,
+  PING = 11,
+  SAVE_SCENE = 12,
+}
+
+table GuiInput {
+  kind: InputKind;
+  x: float;
+  y: float;
+  dx: float;
+  dy: float;
+  button: uint32;
+  buttons_mask: uint32;
+  modifiers: uint32;
+  key_code: uint32;
+  width: uint32;
+  height: uint32;
+  dpr: float = 1.0;
+  camera_pose: Pose;
+  camera_hfov: float;
+  quality_flags: uint32;
+  screenshot_path: string;
+}
+
+// Published by Bevy after GPU rendering completes for the given swapchain slot.
+// Actual cross-process GPU texture handles (IOSurface Mach ports on macOS,
+// DMA-BUF fds on Linux) are exchanged once per `generation` over the OS handle channel.
+table FrameReady {
+  generation: uint32;
+  slot: uint32;
+  width: uint32;
+  height: uint32;
+  frame_id: uint64;
+  render_ms: float;
+  fps: float;
+  entity_count: uint32;
+  quality_flags: uint32;
+  backend: RendererBackend = BEVY;
+  refining: bool = false;
+  sample_count: uint16 = 0;
+}
+
+table SlotAcquired {
+  generation: uint32;
+  active_slot: uint32;
+}
+
+root_type ScenePacket;

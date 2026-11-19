@@ -1,0 +1,5 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource prefix="ExternalRendererGui/">
+  <file>ExternalRendererGui.qml</file>
+</qresource>
+</RCC>

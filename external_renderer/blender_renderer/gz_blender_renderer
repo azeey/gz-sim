@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Executable wrapper launching Blender 5.0 as an external Gazebo renderer process.
+# Invoked automatically by ExternalRendererGui or manually for debugging.
+#
+# Supports all ExternalRendererGui flags (--session, --endpoint, --width, --height,
+# --camera-pose, --camera-hfov) plus Blender-specific flags:
+#   --engine eevee|cycles
+#   --quality balanced|photoreal
+#   --show-blender          # Open live Blender UI window alongside Gazebo for debugging
+#   --screenshot-path PATH
+#   --screenshot-after-frames N
+#   --save-blend PATH
+#   --verbose
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DRIVER_PY="${SCRIPT_DIR}/driver.py"
+
+BLENDER_BIN="${GZ_BLENDER_BIN:-}"
+if [[ -z "${BLENDER_BIN}" ]]; then
+  if [[ -x "/Applications/Blender.app/Contents/MacOS/Blender" ]]; then
+    BLENDER_BIN="/Applications/Blender.app/Contents/MacOS/Blender"
+  elif command -v blender >/dev/null 2>&1; then
+    BLENDER_BIN="$(command -v blender)"
+  else
+    echo "[gz_blender_renderer] Could not locate Blender executable. Set GZ_BLENDER_BIN." >&2
+    exit 1
+  fi
+fi
+
+# Check whether --show-blender was requested (omit --background when showing Blender GUI)
+BLENDER_FLAGS=("--factory-startup")
+SHOW_UI=0
+for arg in "$@"; do
+  if [[ "${arg}" == "--show-blender" ]]; then
+    SHOW_UI=1
+    break
+  fi
+done
+
+if [[ "${SHOW_UI}" -eq 0 ]]; then
+  BLENDER_FLAGS=("--background" "--factory-startup")
+fi
+
+exec "${BLENDER_BIN}" "${BLENDER_FLAGS[@]}" --python "${DRIVER_PY}" -- "$@"
